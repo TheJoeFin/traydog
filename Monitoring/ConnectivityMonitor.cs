@@ -4,18 +4,6 @@ using System.Net.NetworkInformation;
 using System.Threading;
 using System.Threading.Tasks;
 
-// Internet reachability, in increasing health.
-enum NetStatus
-{
-    Unknown,      // not probed yet / monitoring off
-    Offline,      // no usable network adapter at all
-    NoInternet,   // adapter is up, but the public internet is unreachable (captive portal, DNS, etc.)
-    Online        // a real HTTP probe to the internet succeeded
-}
-
-// Immutable snapshot handed to the UI: the status plus a short human-readable detail line.
-record NetState(NetStatus Status, string Detail);
-
 // Polls connectivity on a timer and on OS network-change events, modelled on
 // SurfaceIssueTracking's ConnectivityMonitor (ping 8.8.8.8 + an HTTP connect test).
 // StatusChanged is raised on a background thread — marshal to the UI thread before
@@ -24,11 +12,13 @@ sealed class ConnectivityMonitor : IDisposable
 {
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(5) };
 
-    private readonly PeriodicTimer _timer = new(TimeSpan.FromSeconds(15));
+    public static TimeSpan RefreshInterval { get; } = TimeSpan.FromSeconds(15);
+
     private CancellationTokenSource? _cts;
     private int _checking; // 0/1 guard so timer + network-change probes don't overlap
 
     public event Action<NetStatus, string>? StatusChanged;
+    public event Action<DateTimeOffset>? NextRefreshScheduled;
 
     public void Start()
     {
@@ -47,7 +37,10 @@ sealed class ConnectivityMonitor : IDisposable
         await CheckAsync();
         while (!ct.IsCancellationRequested)
         {
-            try { await _timer.WaitForNextTickAsync(ct); }
+            var nextRefreshAt = DateTimeOffset.UtcNow + RefreshInterval;
+            NextRefreshScheduled?.Invoke(nextRefreshAt);
+
+            try { await Task.Delay(RefreshInterval, ct); }
             catch (OperationCanceledException) { break; }
             await CheckAsync();
         }
@@ -104,6 +97,5 @@ sealed class ConnectivityMonitor : IDisposable
         NetworkChange.NetworkAvailabilityChanged -= OnNetworkChanged;
         _cts?.Cancel();
         _cts?.Dispose();
-        _timer.Dispose();
     }
 }
