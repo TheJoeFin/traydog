@@ -12,7 +12,22 @@
         -->
         <Platforms>x64;ARM64</Platforms>
         <UseWinUI>true</UseWinUI>
-        <WindowsPackageType>None</WindowsPackageType>
+        <!--
+            EnableMsixTooling lights up the single-project MSIX targets (Package.appxmanifest
+            handling, the Package/Publish menu, .msixupload bundling). Harmless for the
+            unpackaged dev build; required for the Store build below.
+        -->
+        <EnableMsixTooling>true</EnableMsixTooling>
+        <!--
+            WindowsPackageType controls packaged vs. unpackaged:
+              None  -> unpackaged self-contained exe. This is the default so `dotnet run`,
+                       F5, and `dotnet watch run` keep working (see WindowsAppSDKSelfContained
+                       note below and CLAUDE.md).
+              MSIX  -> single-project MSIX for the Store. Opt in per-invocation with
+                       `-p:WindowsPackageType=MSIX` (see the Store build command in
+                       CLAUDE.md). Left conditional so we never lose the unpackaged path.
+        -->
+        <WindowsPackageType Condition="'$(WindowsPackageType)' == ''">None</WindowsPackageType>
         <!--
             WindowsAppSDKSelfContained bundles the Windows App SDK runtime alongside the
             published exe so the app:
@@ -39,6 +54,23 @@
             self-contained build path requires a concrete RID.
         -->
         <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == '' And ('$(Platform)' == '' Or '$(Platform)' == 'AnyCPU' Or '$(Platform)' == 'Any CPU')">$(NETCoreSdkPortableRuntimeIdentifier)</RuntimeIdentifier>
+        <!--
+            When a concrete Platform is pinned (e.g. the Store bundle build fans out over
+            AppxBundlePlatforms="x64|arm64"), map it to a RID so the self-contained
+            WindowsAppSDK path still has one. Without this, each per-arch sub-build sets
+            Platform but leaves RuntimeIdentifier empty and self-contained bundling fails.
+        -->
+        <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == '' And '$(Platform)' == 'x64'">win-x64</RuntimeIdentifier>
+        <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == '' And '$(Platform)' == 'ARM64'">win-arm64</RuntimeIdentifier>
+    </PropertyGroup>
+
+    <!--
+        Packaged Store bundles fan out over both architectures, so restore must produce
+        assets for both RIDs (otherwise the arm64 leg fails NETSDK1047). Scoped to the
+        MSIX build so the unpackaged dev restore stays single-RID and fast.
+    -->
+    <PropertyGroup Condition="'$(WindowsPackageType)' == 'MSIX'">
+        <RuntimeIdentifiers>win-x64;win-arm64</RuntimeIdentifiers>
     </PropertyGroup>
     <!-- </snippet:template-shape> -->
 
@@ -74,6 +106,30 @@
     <ItemGroup Condition="'$(Configuration)' == 'Debug'">
         <PackageReference Include="Microsoft.UI.Reactor.Devtools" Version="0.1.0-preview.12" />
         <RuntimeHostConfigurationOption Include="Reactor.DevtoolsSupport" Value="true" Trim="true" />
+    </ItemGroup>
+
+
+    <PropertyGroup Condition="'$(DisableHasPackageAndPublishMenuAddedByProject)'!='true' and '$(EnableMsixTooling)'=='true'">
+        <HasPackageAndPublishMenu>true</HasPackageAndPublishMenu>
+    </PropertyGroup>
+
+    <!--
+        Packaged (MSIX / Store) build only. The manifest and the Store logo art are pulled
+        in solely when WindowsPackageType=MSIX so the unpackaged dev build stays lean and
+        doesn't try to process the appx manifest. Scale (.scale-200/400) and app-icon
+        (.targetsize-*) variants are indexed into the package's PRI automatically.
+    -->
+    <ItemGroup Condition="'$(WindowsPackageType)' == 'MSIX'">
+        <AppxManifest Include="Package.appxmanifest">
+            <SubType>Designer</SubType>
+        </AppxManifest>
+        <Content Include="Assets\StoreLogo*.png" />
+        <Content Include="Assets\Square44x44Logo*.png" />
+        <Content Include="Assets\Square150x150Logo*.png" />
+        <Content Include="Assets\Wide310x150Logo*.png" />
+        <Content Include="Assets\SmallTile*.png" />
+        <Content Include="Assets\LargeTile*.png" />
+        <Content Include="Assets\SplashScreen*.png" />
     </ItemGroup>
 
 </Project>

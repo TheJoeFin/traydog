@@ -47,13 +47,13 @@
       </uap:VisualElements>
       <Extensions>
           <uap5:Extension Category="windows.startupTask">
-              <uap5:StartupTask TaskId="TrdoStartup" Enabled="false" DisplayName="Trdo" />
+              <uap5:StartupTask TaskId="TrayDogStartup" Enabled="false" DisplayName="TrayDog" />
           </uap5:Extension>
       </Extensions>
     </Application>
   </Applications>
 
-  <Capabilities>
+    <Capabilities>
     <rescap:Capability Name="runFullTrust" />
   </Capabilities>
 </Package>

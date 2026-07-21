@@ -18,6 +18,28 @@ dotnet watch run             # hot reload (relied on by the VS embedded-preview 
 dotnet publish -c Release    # self-contained publish (~30 MB larger, no runtime install needed)
 ```
 
+### Store (MSIX) build
+
+The app is unpackaged by default (`WindowsPackageType=None`) so `dotnet run` / `watch` work.
+Opt into the packaged single-project MSIX build with `-p:WindowsPackageType=MSIX`. To produce
+the `.msixupload` bundle for Partner Center (x64 + arm64, self-contained), use **MSBuild**
+(not `dotnet`, which doesn't drive the appx bundling targets):
+
+```powershell
+# Path is VS-install specific; find via vswhere -find MSBuild\**\Bin\MSBuild.exe
+& "<VS>\MSBuild\Current\Bin\MSBuild.exe" traydog.csproj /restore `
+  /p:Configuration=Release /p:Platform=x64 /p:WindowsPackageType=MSIX `
+  /p:AppxBundle=Always /p:AppxBundlePlatforms="x64|arm64" `
+  /p:UapAppxPackageBuildMode=StoreUpload /p:AppxPackageSigningEnabled=false `
+  /p:GenerateAppxPackageOnBuild=true /p:AppxPackageDir="AppPackages\"
+```
+
+Output: `AppPackages\traydog_<ver>_x64_arm64_bundle.msixupload` — upload this to Partner
+Center (it is intentionally unsigned; the Store re-signs it). `Package.appxmanifest`'s
+`Identity/Name`, `Publisher`, and `PublisherDisplayName` **must exactly match** the app's
+Partner Center reservation or the upload is rejected. Store logo art (`Assets\*Logo*.png`
+etc., incl. `.scale-*` / `.targetsize-*` variants) is generated from `Assets\Dog-face.png`.
+
 There is no test project, linter config, or CI in this repo yet.
 
 ## Architecture
