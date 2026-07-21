@@ -22,7 +22,13 @@ There is no test project, linter config, or CI in this repo yet.
 
 ## Architecture
 
-- **Entry point** (`App.cs`): top-level statement `ReactorApp.Run<App>("traydog", width, height)` boots the framework and mounts the root `App` component. There is no `Main`, no `Program.cs`, no XAML, and no `MainWindow` — Reactor owns the window/host.
+Source is organized by concern:
+
+- `Program.cs` — **entry point**: top-level statements `ReactorApp.Run<App>("traydog", width, height)` boot the framework and mount the root `App` component. There is no `Main`, no XAML, and no `MainWindow` — Reactor owns the window/host.
+- `UI/` — the `App` component, a `partial class` split across three files: `App.cs` (`Render()` + popout presentation helpers), `App.TrayPopout.cs` (the `UseTrayPopout` hook — borderless-window setup, tray icon, context menu, tooltip), and `App.Connectivity.cs` (the `UseConnectivity` and `UseRefreshProgress` hooks).
+- `Monitoring/` — connectivity domain: `NetState.cs` (the `NetStatus` enum + `NetState` record shared with the UI) and `ConnectivityMonitor.cs` (the background ping/HTTP poller).
+- `Platform/` — Windows-desktop plumbing with no UI: `Interop.cs` (Win32/DWM P/Invoke) and `PopoutPlacement.cs` (pure popout-positioning geometry).
+
 - **Components** subclass `Microsoft.UI.Reactor.Core.Component` and override `Element Render()`. State uses React-style hooks: `var (value, setValue) = UseState(initial)`. Calling a setter re-renders.
 - **Element construction** is via factory functions imported with `using static Microsoft.UI.Reactor.Factories;` — e.g. `FlexColumn(...)`, `Border(...)`, `Heading(...)`, `TextBox(value, setter, ...)`, `TitleBar(...)`. These return `Element` records configured with C# `with` expressions (e.g. `... with { RowGap = 16 }`) and fluent extension methods (`.Padding(24)`, `.Flex(grow: 1, basis: 0)`, `.Backdrop(BackdropKind.Mica)`, `.AutomationName(...)`).
 - **Layout** is flexbox-based (`Microsoft.UI.Reactor.Layout`): `FlexDirection`, `FlexJustify`, `FlexAlign`, plus `.Flex(grow/shrink/basis)` and gap properties.
