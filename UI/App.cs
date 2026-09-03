@@ -16,10 +16,11 @@ partial class App : Component
         var (net, setNet) = UseState(new NetState(NetStatus.Unknown, "Not monitoring"));
         var (nextRefreshAt, setNextRefreshAt) = UseState<DateTimeOffset?>(null);
         var (refreshProgress, setRefreshProgress) = UseState(0d);
+        var (popoutVisible, setPopoutVisible) = UseState(false);
 
-        UseTrayPopout(monitoring, setMonitoring, net);
+        UseTrayPopout(monitoring, setMonitoring, net, setPopoutVisible);
         UseConnectivity(monitoring, setNet, setNextRefreshAt);
-        UseRefreshProgress(monitoring, nextRefreshAt, setRefreshProgress);
+        UseRefreshProgress(monitoring, popoutVisible, nextRefreshAt, setRefreshProgress);
 
         string statusHeadline = StatusHeadline(monitoring, net.Status);
         string statusDescription = StatusDescription(monitoring, net);
@@ -29,7 +30,7 @@ partial class App : Component
         var body = Border(
             FlexColumn(
                 FlexRow(
-                    Image("ms-appx:///Assets/Dog-face.gif").Width(60).Height(48).AutomationName("traydog logo"),
+                    Image("ms-appx:///Assets/Dog-face.png").Width(60).Height(48).AutomationName("traydog logo"),
                     FlexColumn(
                         Heading("traydog"),
                         Caption("Your internet companion").Foreground(Theme.SecondaryText)

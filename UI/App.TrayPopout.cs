@@ -35,7 +35,11 @@ partial class App
             _ => "trayicon.ico" // still probing
         };
 
-    void UseTrayPopout(bool monitoring, Action<bool> setMonitoring, NetState net)
+    void UseTrayPopout(
+        bool monitoring,
+        Action<bool> setMonitoring,
+        NetState net,
+        Action<bool> setPopoutVisible)
     {
         // ReactorWindow this component is mounted in. null only outside a window component.
         var window = UseWindow();
@@ -76,11 +80,28 @@ partial class App
             window?.Hide();
 
             long lastHiddenTick = 0;
+            bool isPopoutVisible = false;
+
+            void SetPopoutVisible(bool visible)
+            {
+                if (isPopoutVisible == visible)
+                    return;
+
+                isPopoutVisible = visible;
+                setPopoutVisible(visible);
+            }
 
             void HidePopout()
             {
                 lastHiddenTick = Environment.TickCount64;
                 window?.Hide();
+                SetPopoutVisible(false);
+            }
+
+            void ShowPopoutWindow()
+            {
+                SetPopoutVisible(true);
+                window?.Show();
             }
 
             async Task ShowAt(PointInt32 anchor)
@@ -90,7 +111,7 @@ partial class App
                     var area = DisplayArea.GetFromPoint(anchor, DisplayAreaFallback.Nearest);
                     appWindow.Move(PopoutPlacement.Calculate(anchor, appWindow.Size, area.WorkArea));
 
-                    window?.Show();
+                    ShowPopoutWindow();
                     await Task.Delay(100);
                     window?.Activate();
                 }
@@ -121,7 +142,7 @@ partial class App
                             DisplayAreaFallback.Nearest);
                         appWindow?.Move(PopoutPlacement.CalculateForTaskbar(
                             notificationArea, appWindow.Size, area.WorkArea));
-                        window?.Show();
+                        ShowPopoutWindow();
                         await Task.Delay(100);
                         window?.Activate();
                         return;
@@ -139,7 +160,7 @@ partial class App
                         DisplayAreaFallback.Nearest);
                     appWindow?.Move(PopoutPlacement.CalculateForTaskbar(
                         taskbar, appWindow.Size, area.WorkArea));
-                    window?.Show();
+                    ShowPopoutWindow();
                     await Task.Delay(100);
                     window?.Activate();
                     return;

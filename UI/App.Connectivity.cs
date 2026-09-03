@@ -39,12 +39,13 @@ partial class App
 
     void UseRefreshProgress(
         bool monitoring,
+        bool popoutVisible,
         DateTimeOffset? nextRefreshAt,
         Action<double> setProgress)
     {
         UseEffect(() =>
         {
-            if (!monitoring || nextRefreshAt is null)
+            if (!monitoring || !popoutVisible || nextRefreshAt is null)
             {
                 setProgress(0);
                 return () => { };
@@ -68,12 +69,12 @@ partial class App
                 setProgress(progress);
             }
 
-            timer.Interval = TimeSpan.FromMilliseconds(250);
+            timer.Interval = TimeSpan.FromSeconds(1);
             timer.Tick += (_, _) => UpdateProgress();
             UpdateProgress();
             timer.Start();
 
             return () => timer.Stop();
-        }, monitoring, nextRefreshAt.GetValueOrDefault());
+        }, monitoring, popoutVisible, nextRefreshAt.GetValueOrDefault());
     }
 }
