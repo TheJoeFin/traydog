@@ -20,21 +20,31 @@ dotnet publish -c Release    # self-contained publish (~30 MB larger, no runtime
 
 ### Store (MSIX) build
 
-The app is unpackaged by default (`WindowsPackageType=None`) so `dotnet run` / `watch` work.
-Opt into the packaged single-project MSIX build with `-p:WindowsPackageType=MSIX`. To produce
-the `.msixupload` bundle for Partner Center (x64 + arm64, self-contained), use **MSBuild**
-(not `dotnet`, which doesn't drive the appx bundling targets):
+The app is unpackaged in **Debug/Release** (`WindowsPackageType=None`) so `dotnet run` /
+`watch` and the Reactor VS preview work. Packaging lives in a dedicated **`Store`** build
+configuration that flips `WindowsPackageType=MSIX` (see the `Store` PropertyGroup in
+`traydog.csproj`).
+
+**From Visual Studio:** pick **`Store`** in the configuration dropdown (x64 or ARM64), then
+right-click the project → **Publish → Create App Packages…** and choose "Microsoft Store".
+The menu only appears in the `Store` config — in Debug/Release the project is unpackaged, so
+VS shows no packaging menu (this is expected, not a bug). Reload the solution after editing
+the `.csproj` if the config/menu looks stale.
+
+**From the command line** (produces the x64 + arm64 `.msixupload` bundle for Partner Center,
+self-contained). Use **MSBuild**, not `dotnet` — `dotnet` doesn't drive the appx bundling
+targets:
 
 ```powershell
 # Path is VS-install specific; find via vswhere -find MSBuild\**\Bin\MSBuild.exe
 & "<VS>\MSBuild\Current\Bin\MSBuild.exe" traydog.csproj /restore `
-  /p:Configuration=Release /p:Platform=x64 /p:WindowsPackageType=MSIX `
+  /p:Configuration=Store /p:Platform=x64 `
   /p:AppxBundle=Always /p:AppxBundlePlatforms="x64|arm64" `
   /p:UapAppxPackageBuildMode=StoreUpload /p:AppxPackageSigningEnabled=false `
   /p:GenerateAppxPackageOnBuild=true /p:AppxPackageDir="AppPackages\"
 ```
 
-Output: `AppPackages\traydog_<ver>_x64_arm64_bundle.msixupload` — upload this to Partner
+Output: `AppPackages\traydog_<ver>_x64_arm64_bundle_Store.msixupload` — upload this to Partner
 Center (it is intentionally unsigned; the Store re-signs it). `Package.appxmanifest`'s
 `Identity/Name`, `Publisher`, and `PublisherDisplayName` **must exactly match** the app's
 Partner Center reservation or the upload is rejected. Store logo art (`Assets\*Logo*.png`

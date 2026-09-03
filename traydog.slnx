@@ -1,5 +1,9 @@
 <Solution>
   <Configurations>
+    <BuildType Name="Debug" />
+    <BuildType Name="Release" />
+    <!-- Packaged single-project MSIX build; see the Store PropertyGroup in traydog.csproj. -->
+    <BuildType Name="Store" />
     <Platform Name="x64" />
     <Platform Name="ARM64" />
   </Configurations>

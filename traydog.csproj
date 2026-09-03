@@ -20,13 +20,31 @@
         <EnableMsixTooling>true</EnableMsixTooling>
         <!--
             WindowsPackageType controls packaged vs. unpackaged:
-              None  -> unpackaged self-contained exe. This is the default so `dotnet run`,
-                       F5, and `dotnet watch run` keep working (see WindowsAppSDKSelfContained
-                       note below and CLAUDE.md).
-              MSIX  -> single-project MSIX for the Store. Opt in per-invocation with
-                       `-p:WindowsPackageType=MSIX` (see the Store build command in
-                       CLAUDE.md). Left conditional so we never lose the unpackaged path.
+              None  -> unpackaged self-contained exe. This is the default (Debug/Release) so
+                       `dotnet run`, F5, and `dotnet watch run` keep working (see
+                       WindowsAppSDKSelfContained note below and CLAUDE.md).
+              MSIX  -> single-project MSIX for the Store. The dedicated `Store` build
+                       configuration flips this on (see the Store PropertyGroup below), which
+                       is what makes Visual Studio's Publish -> Create App Packages... menu
+                       light up. It can also be forced per-invocation with
+                       `-p:WindowsPackageType=MSIX`. Left conditional so we never lose the
+                       unpackaged path.
         -->
+        <!--
+            The `Store` build configuration is the packaged one, and must set
+            WindowsPackageType=MSIX *before* the None default below (MSBuild evaluates
+            PropertyGroups top-to-bottom, and the RuntimeIdentifiers group keyed on MSIX
+            must observe it during restore). Selecting `Store` in Visual Studio's
+            configuration dropdown re-evaluates the project as a single-project MSIX, which
+            activates the AppxManifest / logo Content / multi-RID groups and lights up
+            Publish -> Create App Packages... Debug and Release stay unpackaged. Optimized
+            like Release, with symbols so the .appxsym is useful for Store crash symbolication.
+        -->
+        <WindowsPackageType Condition="'$(Configuration)' == 'Store'">MSIX</WindowsPackageType>
+        <Optimize Condition="'$(Configuration)' == 'Store'">true</Optimize>
+        <DebugSymbols Condition="'$(Configuration)' == 'Store'">true</DebugSymbols>
+        <DebugType Condition="'$(Configuration)' == 'Store'">portable</DebugType>
+        <DefineConstants Condition="'$(Configuration)' == 'Store'">$(DefineConstants);TRACE</DefineConstants>
         <WindowsPackageType Condition="'$(WindowsPackageType)' == ''">None</WindowsPackageType>
         <!--
             WindowsAppSDKSelfContained bundles the Windows App SDK runtime alongside the
