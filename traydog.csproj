@@ -11,55 +11,33 @@
             with the WinUI 3 templates even though Reactor itself is only tested on x64 / ARM64.
         -->
         <Platforms>x64;ARM64</Platforms>
+        <!-- Explicitly advertise Store so Visual Studio can map the solution configuration. -->
+        <Configurations>Debug;Release;Store</Configurations>
         <UseWinUI>true</UseWinUI>
-        <!--
-            EnableMsixTooling lights up the single-project MSIX targets (Package.appxmanifest
-            handling, the Package/Publish menu, .msixupload bundling). Harmless for the
-            unpackaged dev build; required for the Store build below.
-        -->
+        <!-- Enable the standard single-project MSIX tooling and Visual Studio package workflow. -->
         <EnableMsixTooling>true</EnableMsixTooling>
         <!--
-            WindowsPackageType controls packaged vs. unpackaged:
-              None  -> unpackaged self-contained exe. This is the default (Debug/Release) so
-                       `dotnet run`, F5, and `dotnet watch run` keep working (see
-                       WindowsAppSDKSelfContained note below and CLAUDE.md).
-              MSIX  -> single-project MSIX for the Store. The dedicated `Store` build
-                       configuration flips this on (see the Store PropertyGroup below), which
-                       is what makes Visual Studio's Publish -> Create App Packages... menu
-                       light up. It can also be forced per-invocation with
-                       `-p:WindowsPackageType=MSIX`. Left conditional so we never lose the
-                       unpackaged path.
+            This is a packaged app in every configuration. Debug and Release create
+            architecture-specific local MSIX packages for Visual Studio deployment; Store
+            additionally produces the unsigned x64/ARM64 Store upload bundle below.
         -->
-        <!--
-            The `Store` build configuration is the packaged one, and must set
-            WindowsPackageType=MSIX *before* the None default below (MSBuild evaluates
-            PropertyGroups top-to-bottom, and the RuntimeIdentifiers group keyed on MSIX
-            must observe it during restore). Selecting `Store` in Visual Studio's
-            configuration dropdown re-evaluates the project as a single-project MSIX, which
-            activates the AppxManifest / logo Content / multi-RID groups and lights up
-            Publish -> Create App Packages... Debug and Release stay unpackaged. Optimized
-            like Release, with symbols so the .appxsym is useful for Store crash symbolication.
-        -->
-        <WindowsPackageType Condition="'$(Configuration)' == 'Store'">MSIX</WindowsPackageType>
+        <WindowsPackageType>MSIX</WindowsPackageType>
+        <GenerateAppxPackageOnBuild>true</GenerateAppxPackageOnBuild>
+        <AppxPackageSigningEnabled>false</AppxPackageSigningEnabled>
+        <GenerateTestArtifacts>false</GenerateTestArtifacts>
+        <AppxPackageDir>$(MSBuildProjectDirectory)\AppPackages\</AppxPackageDir>
         <Optimize Condition="'$(Configuration)' == 'Store'">true</Optimize>
-        <DebugSymbols Condition="'$(Configuration)' == 'Store'">true</DebugSymbols>
-        <DebugType Condition="'$(Configuration)' == 'Store'">portable</DebugType>
+        <!-- Avoid the optional native PDB conversion tool, which is not installed by default. -->
+        <DebugSymbols Condition="'$(Configuration)' == 'Store'">false</DebugSymbols>
+        <DebugType Condition="'$(Configuration)' == 'Store'">none</DebugType>
         <DefineConstants Condition="'$(Configuration)' == 'Store'">$(DefineConstants);TRACE</DefineConstants>
-        <WindowsPackageType Condition="'$(WindowsPackageType)' == ''">None</WindowsPackageType>
+        <!-- Store builds produce an unsigned x64/ARM64 upload bundle in AppPackages\. -->
+        <AppxBundle Condition="'$(Configuration)' == 'Store'">Always</AppxBundle>
+        <AppxBundlePlatforms Condition="'$(Configuration)' == 'Store'">x64|arm64</AppxBundlePlatforms>
+        <UapAppxPackageBuildMode Condition="'$(Configuration)' == 'Store'">StoreUpload</UapAppxPackageBuildMode>
         <!--
-            WindowsAppSDKSelfContained bundles the Windows App SDK runtime alongside the
-            published exe so the app:
-              (a) runs from any folder without a separate Windows App Runtime install, and
-              (b) survives `dotnet watch run` hot reload (used by the Reactor Visual Studio
-                  embedded-preview extension — spec 056). Incremental rebuilds otherwise
-                  double-count transitive Microsoft.WindowsAppSDK.* references and trip
-                  Microsoft.WindowsAppSDK.ComponentReference.targets' strict version check
-                  ("version 2.0.20;2.0.20 was referenced"). Self-contained bundling
-                  sidesteps that check.
-            Tradeoff: ~30 MB extra in the publish output. To ship framework-dependent
-            (smaller publish, requires the user to install Microsoft.WindowsAppRuntime
-            separately) flip this to false and ensure your install instructions tell users
-            to install the runtime first.
+            WindowsAppSDKSelfContained bundles the Windows App SDK runtime in each package,
+            avoiding a separate Windows App Runtime installation.
         -->
         <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
         <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
@@ -83,9 +61,8 @@
     </PropertyGroup>
 
     <!--
-        Packaged Store bundles fan out over both architectures, so restore must produce
-        assets for both RIDs (otherwise the arm64 leg fails NETSDK1047). Scoped to the
-        MSIX build so the unpackaged dev restore stays single-RID and fast.
+        All packaged builds can target x64 and ARM64. Restore assets for both RIDs so Store
+        bundle sub-builds do not fail NETSDK1047.
     -->
     <PropertyGroup Condition="'$(WindowsPackageType)' == 'MSIX'">
         <RuntimeIdentifiers>win-x64;win-arm64</RuntimeIdentifiers>
@@ -131,23 +108,13 @@
         <HasPackageAndPublishMenu>true</HasPackageAndPublishMenu>
     </PropertyGroup>
 
-    <!--
-        Packaged (MSIX / Store) build only. The manifest and the Store logo art are pulled
-        in solely when WindowsPackageType=MSIX so the unpackaged dev build stays lean and
-        doesn't try to process the appx manifest. Scale (.scale-200/400) and app-icon
-        (.targetsize-*) variants are indexed into the package's PRI automatically.
-    -->
-    <ItemGroup Condition="'$(WindowsPackageType)' == 'MSIX'">
+    <!-- All image assets ship in the MSIX; manifest image variants are indexed into its PRI. -->
+    <ItemGroup>
         <AppxManifest Include="Package.appxmanifest">
             <SubType>Designer</SubType>
         </AppxManifest>
-        <Content Include="Assets\StoreLogo*.png" />
-        <Content Include="Assets\Square44x44Logo*.png" />
-        <Content Include="Assets\Square150x150Logo*.png" />
-        <Content Include="Assets\Wide310x150Logo*.png" />
-        <Content Include="Assets\SmallTile*.png" />
-        <Content Include="Assets\LargeTile*.png" />
-        <Content Include="Assets\SplashScreen*.png" />
+        <Content Include="Assets\*.png" />
+        <Content Include="Assets\*.gif" />
     </ItemGroup>
 
 </Project>
