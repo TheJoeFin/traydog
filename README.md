@@ -13,10 +13,20 @@ traydog is a tray-only Windows app built with [Microsoft.UI.Reactor](https://git
 - **Popout:** the current status with the latest ping time, a Start/Stop monitoring button, and a bar along the bottom counting down to the next check.
 - **Check cadence:** every 15 seconds while the popout is open, and every minute (configurable) while it's closed. A network change (Wi-Fi drop, cable unplugged, VPN connect) triggers a check right away.
 - **Remembers your choice:** if you leave monitoring on, it resumes the next time traydog starts.
+- **Situations:** let traydog switch monitoring on or off for you. A situation is a set of conditions, all or any of which must hold:
+  - **Network:** connected (or not) to a named Wi-Fi or wired network.
+  - **Place:** within (or farther than) 100 m to 5 km of a place you set with "Use my current location".
+  - **Battery and power:** battery below or at least a percentage, plugged in, or on battery.
+  - **Device:** a named device is connected (or not): headphones, a dock, a monitor, a mouse.
+  - **Time of day:** between (or outside) two times, on the days you pick. Overnight windows work.
+
+  While a situation holds, it turns each monitor on or off, or leaves it alone. When it ends, the monitor goes back to what you chose. If you switch monitoring yourself while a situation is in charge, your choice lasts until that situation changes. When two situations want the same monitor, the one higher in the list wins. The popout says which situation turned monitoring on or off, and the tray tooltip lists the active ones.
+
+  Open situations from the link at the bottom of the popout or from the tray menu. The editor shows, for each condition, whether it's true right now. Internet monitoring is the only monitor today; situations are built so that new monitors plug in.
 - **Settings:** the gear button, or Settings in the tray menu, opens a settings page inside the popout:
   - **Start with Windows:** opt-in. If you turned traydog off in Windows Settings > Apps > Startup, or a policy controls it, the switch is locked and says why.
   - **Check in the background:** every 30 seconds, every minute, or every 5 minutes.
-- **Tray menu:** right-click for Open traydog, Internet monitoring (on/off), Settings, and Exit.
+- **Tray menu:** right-click for Open traydog, Internet monitoring (on/off), Situations, Settings, and Exit.
 - **Feels like part of Windows:** the popout uses the same acrylic as the shell's own flyouts, follows the taskbar's light or dark theme (and its accent tint), slides in, and closes when you click elsewhere. Escape goes back from Settings, then closes the popout.
 - **Single instance:** launching traydog again opens the running copy's popout instead of adding a second icon.
 
@@ -32,8 +42,9 @@ The first launch opens the popout so you can see where traydog lives. After that
 ## Privacy and footprint
 
 - **Network:** traydog contacts only `8.8.8.8` (ICMP ping) and `www.msftconnecttest.com` (one small HTTP GET), and only while monitoring is on. Nothing is sent anywhere else, and there's no telemetry.
-- **Storage:** three preferences in the app's local settings: whether you've launched before, whether monitoring is on, and the background check interval. There are no accounts, keys, or tokens.
-- **Idle cost:** monitoring runs one probe at a time and slows down while the popout is closed. The popout window closes for real after a minute out of sight, and traydog gives the memory back to Windows. Its idle working set is about 10–25 MB.
+- **Situations:** conditions are checked on the PC, from Windows' own network, power, device, and location information, and only for the kinds of condition your enabled situations use. Location is used only when a situation has a place condition: Windows asks for permission the first time, and traydog then takes one quick location fix every 10 minutes and when your network changes. traydog never sends your location anywhere.
+- **Storage:** a few preferences in the app's local settings (whether you've launched before, whether monitoring is on, the background check interval) and your situations in `situations.json` in the app's local folder, including any place coordinates you set. There are no accounts, keys, or tokens.
+- **Idle cost:** monitoring runs one probe at a time and slows down while the popout is closed. Situations listen for Windows notifications rather than polling. The popout and situations windows close for real when you're done, and traydog gives the memory back to Windows. Its idle working set is about 10–25 MB.
 - **Crashes:** unhandled exceptions are appended to `%TEMP%\traydog-crash.log`.
 
 ## Build from source
@@ -66,7 +77,10 @@ To work on the popout UI alone, the `traydog Devtools` launch profile (`--devtoo
 | `UI/StatusPage.cs`, `UI/SettingsPage.cs` | The popout's two pages |
 | `UI/PopoutStore.cs` | Which page is showing and whether the popout is on screen |
 | `UI/ShellBackdrop.cs` | Acrylic that matches the shell's own flyouts |
+| `UI/SituationsWindow.cs`, `UI/SituationsEditor.cs`, `UI/SituationEditor.cs` | The situations editor window |
+| `Monitoring/Monitors.cs`, `Monitoring/InternetMonitor.cs` | The monitor interface and switchboard (usual choice, situation demand, override) |
 | `Monitoring/Watchdog.cs` | App-lifetime monitoring state shared by the tray icon and the popout |
+| `Situations/` | The situation model, policy, wording, and JSON (unit tested), the engine, its store, and the sensors |
 | `Monitoring/ConnectivityMonitor.cs` | The ping + HTTP probe loop |
 | `Monitoring/StatusText.cs`, `Monitoring/CheckInterval.cs` | Wording, icons, countdown math, and interval choices (unit tested) |
 | `Platform/` | Tray-anchored placement, single instance, crash log |

@@ -12,12 +12,14 @@ static class SettingsService
         set => Set(nameof(HasLaunchedBefore), value);
     }
 
-    // Whether the user left monitoring on; resumed at the next launch.
-    public static bool MonitoringEnabled
-    {
-        get => Get(nameof(MonitoringEnabled), false);
-        set => Set(nameof(MonitoringEnabled), value);
-    }
+    // Whether the user left a monitor on (its usual choice when no situation decides); resumed at the
+    // next launch. Internet monitoring predates the other monitors and keeps its original key.
+    public static bool GetMonitorOn(string monitorId) => Get(MonitorKey(monitorId), false);
+
+    public static void SetMonitorOn(string monitorId, bool on) => Set(MonitorKey(monitorId), on);
+
+    static string MonitorKey(string monitorId) =>
+        monitorId == InternetMonitor.MonitorId ? "MonitoringEnabled" : $"Monitor.{monitorId}.On";
 
     // Seconds between checks while the popout is closed. Raw value; Watchdog snaps it to
     // CheckInterval.InTrayChoices on read.

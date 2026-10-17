@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 // Words, icons, and countdown math for each monitoring state, shared by the popout and the tray
 // icon. No WinRT here, so the test project links this file directly.
@@ -40,9 +41,12 @@ static class StatusText
             _ => "Checking…"
         };
 
-    public static string Tooltip(bool monitoring, NetStatus s)
+    // App name, status, then the active situations (if any) on a third line.
+    public static string Tooltip(bool monitoring, NetStatus s, IEnumerable<string>? activeSituations = null)
     {
         string tooltip = $"{AppName}\n{TrayStatus(monitoring, s)}";
+        if (activeSituations is not null && string.Join(", ", activeSituations) is { Length: > 0 } situations)
+            tooltip += $"\n{situations}";
         return tooltip.Length > MaxTooltipLength ? tooltip[..MaxTooltipLength] : tooltip;
     }
 

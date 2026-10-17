@@ -55,5 +55,7 @@
     <Capabilities>
     <Capability Name="internetClient" />
     <rescap:Capability Name="runFullTrust" />
+    <!-- Place conditions in situations. Windows asks the user the first time one needs it. -->
+    <DeviceCapability Name="location" />
   </Capabilities>
 </Package>

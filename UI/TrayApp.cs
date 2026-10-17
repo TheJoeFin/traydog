@@ -1,13 +1,14 @@
 using System;
 using System.IO;
+using System.Linq;
 using Microsoft.UI.Dispatching;          // DispatcherQueue
 using Microsoft.UI.Reactor;
 using Microsoft.UI.Xaml.Controls;        // MenuFlyout, MenuFlyoutItem, ToggleMenuFlyoutItem, FontIcon
 using WinUIEx;                           // TrayIcon
 
 // App lifetime for the tray-only app: owns the tray icon and its menu, the single-instance guard,
-// and the popout's window slot. There is no main window. The popout window exists only while it's
-// in use, and the tray menu's Exit is the only way out.
+// and the window slots (the popout and the situations editor). There is no main window. Each window
+// exists only while it's in use, and the tray menu's Exit is the only way out.
 static class TrayApp
 {
     // Startup leaves JIT and first-request state behind that the idle app never touches again.
@@ -18,6 +19,7 @@ static class TrayApp
     static TrayIcon? _trayIcon;
     static string? _trayIconFile;
     static PopoutWindow? _popout;
+    static SituationsWindow? _situations;
     static bool _isExiting;
 
     // Runs on the UI thread from ReactorApp.Run's startup callback.
@@ -27,15 +29,20 @@ static class TrayApp
         _dispatcher = DispatcherQueue.GetForCurrentThread();
         instance.ListenForShowRequests(() => _dispatcher.TryEnqueue(() => ShowPopout(fromTrayClick: false)));
 
+        // Monitors resume the user's choice, then situations get their say before the icon appears.
         Watchdog.Start();
+        Monitors.Register(InternetMonitor.Instance);
+        SituationEngine.Start();
+
         var state = Watchdog.State;
         _trayIconFile = StatusText.IconFile(state.Monitoring, state.Net.Status);
-        _trayIcon = new TrayIcon(1, IconPath(_trayIconFile), StatusText.Tooltip(state.Monitoring, state.Net.Status));
+        _trayIcon = new TrayIcon(1, IconPath(_trayIconFile), Tooltip());
         _trayIcon.Selected += (_, _) => TogglePopout();
         _trayIcon.ContextMenu += OnContextMenu;
         _trayIcon.IsVisible = true;
         WindowPlacement.SetTrayIcon(_trayIcon);
         Watchdog.Changed += UpdateTrayIcon;
+        SituationEngine.Changed += UpdateTrayIcon;
         PopoutStore.Changed += UpdateProbeCadence;
 
         // First run: show where the app lives instead of launching into silence. Later launches
@@ -49,6 +56,25 @@ static class TrayApp
         {
             MemoryService.ReleaseIdle(StartupTrimDelay);
         }
+    }
+
+    // Opens the situations editor, or brings it forward. It takes over from the popout.
+    public static void ShowSituations()
+    {
+        _popout?.Hide();
+        if (_situations is null)
+        {
+            var situations = new SituationsWindow();
+            situations.Closed += () =>
+            {
+                if (_situations == situations)
+                    _situations = null;
+                ReleaseIdleIfNoWindows();
+            };
+            _situations = situations;
+        }
+
+        _situations.Activate();
     }
 
     // Probe faster only while someone is looking at the status page (not behind Settings).
@@ -73,27 +99,30 @@ static class TrayApp
             _trayIcon.SetIcon(IconPath(iconFile));
         }
 
-        string tooltip = StatusText.Tooltip(state.Monitoring, state.Net.Status);
+        string tooltip = Tooltip();
         if (tooltip != _trayIcon.Tooltip)
             _trayIcon.Tooltip = tooltip;
+    }
+
+    static string Tooltip()
+    {
+        var state = Watchdog.State;
+        var situations = SituationEngine.State;
+        var active = situations.Situations.Where(s => situations.IsActive(s.Id)).Select(SituationText.Name);
+        return StatusText.Tooltip(state.Monitoring, state.Net.Status, active);
     }
 
     // WinUIEx loads the .ico by path at runtime; the .csproj copies every Assets\*.ico next to the exe.
     static string IconPath(string iconFile) => Path.Combine(AppContext.BaseDirectory, "Assets", iconFile);
 
-    // Built fresh on every right-click so the toggle reflects live state.
+    // Built fresh on every right-click so the toggles reflect live state. One toggle per monitor.
     static void OnContextMenu(TrayIcon sender, TrayIconEventArgs args)
     {
         var open = new MenuFlyoutItem { Text = $"Open {StatusText.AppName}", Icon = new FontIcon { Glyph = "" } };
         open.Click += (_, _) => ShowPopout(fromTrayClick: true);
 
-        var monitor = new ToggleMenuFlyoutItem
-        {
-            Text = "Internet monitoring",
-            IsChecked = Watchdog.State.Monitoring,
-            Icon = new FontIcon { Glyph = "" }
-        };
-        monitor.Click += (_, _) => Watchdog.SetMonitoring(!Watchdog.State.Monitoring);
+        var situations = new MenuFlyoutItem { Text = "Situations", Icon = new FontIcon { Glyph = "" } };
+        situations.Click += (_, _) => ShowSituations();
 
         var settings = new MenuFlyoutItem { Text = "Settings", Icon = new FontIcon { Glyph = "" } };
         settings.Click += (_, _) => ShowPopout(fromTrayClick: true, PopoutPage.Settings);
@@ -103,7 +132,18 @@ static class TrayApp
 
         var menu = new MenuFlyout();
         menu.Items.Add(open);
-        menu.Items.Add(monitor);
+        foreach (var monitor in Monitors.All)
+        {
+            var toggle = new ToggleMenuFlyoutItem
+            {
+                Text = monitor.Name,
+                IsChecked = Monitors.IsOn(monitor.Id),
+                Icon = new FontIcon { Glyph = monitor.Glyph }
+            };
+            toggle.Click += (_, _) => Monitors.Toggle(monitor.Id);
+            menu.Items.Add(toggle);
+        }
+        menu.Items.Add(situations);
         menu.Items.Add(settings);
         menu.Items.Add(new MenuFlyoutSeparator());
         menu.Items.Add(exit);
@@ -138,8 +178,7 @@ static class TrayApp
             {
                 if (_popout == popout)
                     _popout = null;
-                if (!_isExiting)
-                    MemoryService.ReleaseIdle();
+                ReleaseIdleIfNoWindows();
             };
             _popout = popout;
         }
@@ -147,13 +186,22 @@ static class TrayApp
         return _popout;
     }
 
+    static void ReleaseIdleIfNoWindows()
+    {
+        if (!_isExiting && _popout is null && _situations is null)
+            MemoryService.ReleaseIdle();
+    }
+
     static void Exit()
     {
         _isExiting = true;
         _popout?.Close();
+        _situations?.Close();
         PopoutStore.Changed -= UpdateProbeCadence;
         Watchdog.Changed -= UpdateTrayIcon;
-        Watchdog.Stop();
+        SituationEngine.Changed -= UpdateTrayIcon;
+        SituationEngine.Stop();
+        Monitors.Stop();
 
         if (_trayIcon is not null)
         {

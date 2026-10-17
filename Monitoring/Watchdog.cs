@@ -11,9 +11,9 @@ record WatchdogState(bool Monitoring, NetState Net, DateTimeOffset? LastProbeAt,
 // UseExternalStore), so it outlives the popout window.
 //
 // This is traydog's one piece of work while hidden, and the documented exception to "no network
-// work while hidden": the tray icon *is* the status display. It's opt-in (the user starts it, and
-// the choice is remembered across launches), it runs one tiny probe at a time, and it slows to
-// InTrayInterval (a setting, a minute by default) unless the status page is on screen.
+// work while hidden": the tray icon *is* the status display. It's opt-in (the user starts it, or a
+// situation they set up does; Monitors decides and remembers the choice), it runs one tiny probe at a
+// time, and it slows to InTrayInterval (a setting, a minute by default) unless the status page is on screen.
 static class Watchdog
 {
     public static readonly TimeSpan WhileOpenInterval = TimeSpan.FromSeconds(15);
@@ -36,13 +36,12 @@ static class Watchdog
         return () => Changed -= onChange;
     }
 
-    // Call once on the UI thread at startup; resumes monitoring if the user left it on.
+    // Call once on the UI thread at startup, before InternetMonitor is registered (which resumes
+    // monitoring if it should be on).
     public static void Start()
     {
         _dispatcher = DispatcherQueue.GetForCurrentThread();
         InTrayInterval = CheckInterval.SanitizeInTray(SettingsService.InTrayIntervalSeconds);
-        if (SettingsService.MonitoringEnabled)
-            SetMonitoring(true);
     }
 
     public static void SetInTrayInterval(TimeSpan interval)
@@ -53,9 +52,10 @@ static class Watchdog
             _monitor.Interval = CurrentInterval;
     }
 
+    // Starts or stops probing. Only Monitors calls this (through InternetMonitor); the user's controls
+    // go through Monitors.Choose so situations and the remembered choice stay in step.
     public static void SetMonitoring(bool on)
     {
-        SettingsService.MonitoringEnabled = on;
         if (on == (_monitor is not null))
             return;
 
@@ -92,13 +92,6 @@ static class Watchdog
         _monitor.Interval = CurrentInterval;
         if (onScreen && State.LastProbeAt is { } last && DateTimeOffset.UtcNow - last > WhileOpenInterval / 2)
             _monitor.ProbeNow();
-    }
-
-    // App exit: stop probing without recording "off" as the user's choice.
-    public static void Stop()
-    {
-        _monitor?.Dispose();
-        _monitor = null;
     }
 
     static TimeSpan CurrentInterval => _statusOnScreen ? WhileOpenInterval : InTrayInterval;
