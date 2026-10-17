@@ -27,6 +27,10 @@
     <Compile Include="..\Monitoring\CheckInterval.cs" Link="Monitoring\CheckInterval.cs" />
     <Compile Include="..\Monitoring\ConnectivityMonitor.cs" Link="Monitoring\ConnectivityMonitor.cs" />
     <Compile Include="..\Platform\PopoutPlacement.cs" Link="Platform\PopoutPlacement.cs" />
+    <Compile Include="..\Situations\Situation.cs" Link="Situations\Situation.cs" />
+    <Compile Include="..\Situations\SituationPolicy.cs" Link="Situations\SituationPolicy.cs" />
+    <Compile Include="..\Situations\SituationText.cs" Link="Situations\SituationText.cs" />
+    <Compile Include="..\Situations\SituationJson.cs" Link="Situations\SituationJson.cs" />
   </ItemGroup>
 
 </Project>
