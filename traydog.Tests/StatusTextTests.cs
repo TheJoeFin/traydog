@@ -23,6 +23,14 @@ internal sealed class StatusTextTests
     }
 
     [TestMethod]
+    public void Tooltip_AddsActiveSituationsOnAThirdLine()
+    {
+        Assert.AreEqual("traydog\nConnected\nAt work, Docked", StatusText.Tooltip(true, NetStatus.Online, ["At work", "Docked"]));
+        Assert.AreEqual("traydog\nConnected", StatusText.Tooltip(true, NetStatus.Online, []));
+        Assert.AreEqual(127, StatusText.Tooltip(true, NetStatus.Online, [new string('x', 200)]).Length);
+    }
+
+    [TestMethod]
     public void Description_ShowsProbeDetailOnlyWhileMonitoring()
     {
         var net = new NetState(NetStatus.Online, "ping 12ms · http ok");
