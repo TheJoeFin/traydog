@@ -34,7 +34,7 @@ class StatusPage : PopoutContent
                 ) with { RowGap = 8 }
             ),
             FlexColumn(
-                Button(actionLabel, () => Watchdog.SetMonitoring(!state.Monitoring))
+                Button(actionLabel, () => Monitors.Choose(InternetMonitor.MonitorId, !state.Monitoring))
                     .AccentButton()
                     .AutomationName(actionLabel)
                     .AutomationId("ToggleMonitoring") // stable selector for UI automation

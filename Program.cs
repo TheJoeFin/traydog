@@ -13,6 +13,7 @@ if (Array.Exists(args, a => a is "--devtools" or "--preview"))
         configure: _ =>
         {
             Watchdog.Start();
+            Monitors.Register(InternetMonitor.Instance);
             PopoutStore.SetVisible(true);
         });
     return;

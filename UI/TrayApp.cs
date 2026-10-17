@@ -28,6 +28,7 @@ static class TrayApp
         instance.ListenForShowRequests(() => _dispatcher.TryEnqueue(() => ShowPopout(fromTrayClick: false)));
 
         Watchdog.Start();
+        Monitors.Register(InternetMonitor.Instance);
         var state = Watchdog.State;
         _trayIconFile = StatusText.IconFile(state.Monitoring, state.Net.Status);
         _trayIcon = new TrayIcon(1, IconPath(_trayIconFile), StatusText.Tooltip(state.Monitoring, state.Net.Status));
@@ -81,19 +82,11 @@ static class TrayApp
     // WinUIEx loads the .ico by path at runtime; the .csproj copies every Assets\*.ico next to the exe.
     static string IconPath(string iconFile) => Path.Combine(AppContext.BaseDirectory, "Assets", iconFile);
 
-    // Built fresh on every right-click so the toggle reflects live state.
+    // Built fresh on every right-click so the toggles reflect live state. One toggle per monitor.
     static void OnContextMenu(TrayIcon sender, TrayIconEventArgs args)
     {
         var open = new MenuFlyoutItem { Text = $"Open {StatusText.AppName}", Icon = new FontIcon { Glyph = "" } };
         open.Click += (_, _) => ShowPopout(fromTrayClick: true);
-
-        var monitor = new ToggleMenuFlyoutItem
-        {
-            Text = "Internet monitoring",
-            IsChecked = Watchdog.State.Monitoring,
-            Icon = new FontIcon { Glyph = "" }
-        };
-        monitor.Click += (_, _) => Watchdog.SetMonitoring(!Watchdog.State.Monitoring);
 
         var settings = new MenuFlyoutItem { Text = "Settings", Icon = new FontIcon { Glyph = "" } };
         settings.Click += (_, _) => ShowPopout(fromTrayClick: true, PopoutPage.Settings);
@@ -103,7 +96,17 @@ static class TrayApp
 
         var menu = new MenuFlyout();
         menu.Items.Add(open);
-        menu.Items.Add(monitor);
+        foreach (var monitor in Monitors.All)
+        {
+            var toggle = new ToggleMenuFlyoutItem
+            {
+                Text = monitor.Name,
+                IsChecked = Monitors.IsOn(monitor.Id),
+                Icon = new FontIcon { Glyph = monitor.Glyph }
+            };
+            toggle.Click += (_, _) => Monitors.Toggle(monitor.Id);
+            menu.Items.Add(toggle);
+        }
         menu.Items.Add(settings);
         menu.Items.Add(new MenuFlyoutSeparator());
         menu.Items.Add(exit);
@@ -153,7 +156,7 @@ static class TrayApp
         _popout?.Close();
         PopoutStore.Changed -= UpdateProbeCadence;
         Watchdog.Changed -= UpdateTrayIcon;
-        Watchdog.Stop();
+        Monitors.Stop();
 
         if (_trayIcon is not null)
         {
