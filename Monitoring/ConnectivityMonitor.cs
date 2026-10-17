@@ -1,109 +1,143 @@
 using System;
+using System.Net;
 using System.Net.Http;
 using System.Net.NetworkInformation;
 using System.Threading;
 using System.Threading.Tasks;
 
-// Internet reachability, in increasing health.
-enum NetStatus
-{
-    Unknown,      // not probed yet / monitoring off
-    Offline,      // no usable network adapter at all
-    NoInternet,   // adapter is up, but the public internet is unreachable (captive portal, DNS, etc.)
-    Online        // a real HTTP probe to the internet succeeded
-}
-
-// Immutable snapshot handed to the UI: the status plus a short human-readable detail line.
-record NetState(NetStatus Status, string Detail);
-
-// Polls connectivity on a timer and on OS network-change events, modelled on
-// SurfaceIssueTracking's ConnectivityMonitor (ping 8.8.8.8 + an HTTP connect test).
-// StatusChanged is raised on a background thread — marshal to the UI thread before
-// touching UI/state.
+// Probes connectivity on an interval and on OS network-change events, modelled on
+// SurfaceIssueTracking's ConnectivityMonitor (ping 8.8.8.8 + an HTTP connect test). One probe runs
+// at a time, Interval can change while running, and Dispose cancels an in-flight probe.
+// Events are raised on a background thread — marshal to the UI thread before touching UI/state.
 sealed class ConnectivityMonitor : IDisposable
 {
-    private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(5) };
+    static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(5) };
+    static readonly IPAddress PingTarget = IPAddress.Parse("8.8.8.8");
+    static readonly TimeSpan PingTimeout = TimeSpan.FromSeconds(3);
 
-    private readonly PeriodicTimer _timer = new(TimeSpan.FromSeconds(15));
-    private CancellationTokenSource? _cts;
-    private int _checking; // 0/1 guard so timer + network-change probes don't overlap
+    readonly CancellationTokenSource _cts = new();
+    readonly SemaphoreSlim _wake = new(0, 1); // released to make the poll loop re-plan its wait
+    TimeSpan _interval;
+    DateTimeOffset _lastProbeAt = DateTimeOffset.MinValue;
+    volatile bool _probeRequested;
+
+    public ConnectivityMonitor(TimeSpan interval) => _interval = interval;
 
     public event Action<NetStatus, string>? StatusChanged;
+
+    // (last probe, next probe), raised whenever the loop starts waiting.
+    public event Action<DateTimeOffset, DateTimeOffset>? Scheduled;
+
+    public TimeSpan Interval
+    {
+        get => _interval;
+        set
+        {
+            _interval = value;
+            Wake();
+        }
+    }
 
     public void Start()
     {
         NetworkChange.NetworkAddressChanged += OnNetworkChanged;
         NetworkChange.NetworkAvailabilityChanged += OnNetworkChanged;
-        _cts = new CancellationTokenSource();
         _ = PollLoopAsync(_cts.Token);
+    }
+
+    // Probe now, or as soon as the probe in flight finishes.
+    public void ProbeNow()
+    {
+        _probeRequested = true;
+        Wake();
     }
 
     // A network-change event almost always means the answer just changed — re-probe now
     // instead of waiting for the next tick.
-    private void OnNetworkChanged(object? sender, EventArgs e) => _ = CheckAsync();
+    void OnNetworkChanged(object? sender, EventArgs e) => ProbeNow();
 
-    private async Task PollLoopAsync(CancellationToken ct)
+    void Wake()
     {
-        await CheckAsync();
-        while (!ct.IsCancellationRequested)
-        {
-            try { await _timer.WaitForNextTickAsync(ct); }
-            catch (OperationCanceledException) { break; }
-            await CheckAsync();
-        }
+        try { _wake.Release(); }
+        catch (SemaphoreFullException) { } // already pending
     }
 
-    private async Task CheckAsync()
+    async Task PollLoopAsync(CancellationToken ct)
     {
-        if (Interlocked.Exchange(ref _checking, 1) == 1) return; // a probe is already running
         try
         {
-            bool networkUp = NetworkInterface.GetIsNetworkAvailable();
-            var (pingOk, pingMsg) = await PingAsync("8.8.8.8");
-            var (httpOk, httpMsg) = await HttpCheckAsync();
+            while (!ct.IsCancellationRequested)
+            {
+                TimeSpan wait = _probeRequested
+                    ? TimeSpan.Zero
+                    : _lastProbeAt + _interval - DateTimeOffset.UtcNow;
+                if (wait > TimeSpan.Zero)
+                {
+                    Scheduled?.Invoke(_lastProbeAt, DateTimeOffset.UtcNow + wait);
+                    await _wake.WaitAsync(wait, ct); // woken early by Interval changes and ProbeNow
+                    continue;
+                }
 
-            NetStatus status =
-                httpOk ? NetStatus.Online :
-                (networkUp || pingOk) ? NetStatus.NoInternet :
-                NetStatus.Offline;
-
-            StatusChanged?.Invoke(status, $"ping {pingMsg} · http {httpMsg}");
+                _probeRequested = false;
+                await CheckAsync(ct);
+                _lastProbeAt = DateTimeOffset.UtcNow;
+            }
         }
-        finally { Interlocked.Exchange(ref _checking, 0); }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // Disposed.
+        }
     }
 
-    private static async Task<(bool ok, string msg)> PingAsync(string host)
+    async Task CheckAsync(CancellationToken ct)
+    {
+        bool networkUp = NetworkInterface.GetIsNetworkAvailable();
+        var (pingOk, pingMsg) = await PingAsync(ct);
+        var (httpOk, httpMsg) = await HttpCheckAsync(ct);
+        ct.ThrowIfCancellationRequested();
+
+        StatusChanged?.Invoke(Classify(httpOk, pingOk, networkUp), $"ping {pingMsg} · http {httpMsg}");
+    }
+
+    // A real HTTP round-trip is the only proof of internet; a ping reply or an adapter that's up
+    // means there's a network but no usable internet (captive portal, DNS, etc.).
+    public static NetStatus Classify(bool httpOk, bool pingOk, bool networkUp) =>
+        httpOk ? NetStatus.Online :
+        (networkUp || pingOk) ? NetStatus.NoInternet :
+        NetStatus.Offline;
+
+    static async Task<(bool ok, string msg)> PingAsync(CancellationToken ct)
     {
         try
         {
             using var p = new Ping();
-            var r = await p.SendPingAsync(host, 3000);
+            var r = await p.SendPingAsync(PingTarget, PingTimeout, cancellationToken: ct);
             return r.Status == IPStatus.Success
                 ? (true, $"{r.RoundtripTime}ms")
                 : (false, r.Status.ToString());
         }
-        catch (Exception ex) { return (false, ex.GetType().Name); }
+        catch (Exception ex) when (!ct.IsCancellationRequested) { return (false, ex.GetType().Name); }
     }
 
-    private static async Task<(bool ok, string msg)> HttpCheckAsync()
+    static async Task<(bool ok, string msg)> HttpCheckAsync(CancellationToken ct)
     {
         try
         {
             // Microsoft's connectivity endpoint returns a tiny fixed body — ideal as a probe.
             using var req = new HttpRequestMessage(
                 HttpMethod.Get, "http://www.msftconnecttest.com/connecttest.txt");
-            using var r = await Http.SendAsync(req);
+            using var r = await Http.SendAsync(req, ct);
             return r.IsSuccessStatusCode ? (true, "ok") : (false, $"HTTP {(int)r.StatusCode}");
         }
-        catch (Exception ex) { return (false, ex.GetType().Name); }
+        catch (TaskCanceledException) when (!ct.IsCancellationRequested) { return (false, "timed out"); }
+        catch (Exception ex) when (!ct.IsCancellationRequested) { return (false, ex.GetType().Name); }
     }
 
     public void Dispose()
     {
         NetworkChange.NetworkAddressChanged -= OnNetworkChanged;
         NetworkChange.NetworkAvailabilityChanged -= OnNetworkChanged;
-        _cts?.Cancel();
-        _cts?.Dispose();
-        _timer.Dispose();
+        _cts.Cancel();
+        _cts.Dispose();
     }
 }

@@ -3,34 +3,50 @@
     <!-- <snippet:template-shape> -->
     <PropertyGroup>
         <OutputType>WinExe</OutputType>
+        <ApplicationIcon>Assets\trayicon.ico</ApplicationIcon>
         <TargetFramework>net10.0-windows10.0.22621.0</TargetFramework>
         <!--
             x64 first so an unqualified `dotnet build` / F5 picks the right default on the
-            majority of dev machines. ARM64 second for Snapdragon X. X86 retained for parity
-            with the WinUI 3 templates even though Reactor itself is only tested on x64 / ARM64.
+            majority of dev machines. ARM64 second for Snapdragon X. No x86: Reactor is only
+            tested on x64 / ARM64, and none of the sibling tray apps ship it.
         -->
-        <Platforms>x64;ARM64;X86</Platforms>
+        <Platforms>x64;ARM64</Platforms>
+        <!-- Explicitly advertise Store so Visual Studio can map the solution configuration. -->
+        <Configurations>Debug;Release;Store</Configurations>
         <UseWinUI>true</UseWinUI>
-        <WindowsPackageType>None</WindowsPackageType>
+        <!-- Enable the standard single-project MSIX tooling and Visual Studio package workflow. -->
+        <EnableMsixTooling>true</EnableMsixTooling>
         <!--
-            WindowsAppSDKSelfContained bundles the Windows App SDK runtime alongside the
-            published exe so the app:
-              (a) runs from any folder without a separate Windows App Runtime install, and
-              (b) survives `dotnet watch run` hot reload (used by the Reactor Visual Studio
-                  embedded-preview extension — spec 056). Incremental rebuilds otherwise
-                  double-count transitive Microsoft.WindowsAppSDK.* references and trip
-                  Microsoft.WindowsAppSDK.ComponentReference.targets' strict version check
-                  ("version 2.0.20;2.0.20 was referenced"). Self-contained bundling
-                  sidesteps that check.
-            Tradeoff: ~30 MB extra in the publish output. To ship framework-dependent
-            (smaller publish, requires the user to install Microsoft.WindowsAppRuntime
-            separately) flip this to false and ensure your install instructions tell users
-            to install the runtime first.
+            This is a packaged app in every configuration. Debug and Release create
+            architecture-specific local MSIX packages for Visual Studio deployment; Store
+            additionally produces the unsigned x64/ARM64 Store upload bundle below.
+        -->
+        <WindowsPackageType>MSIX</WindowsPackageType>
+        <GenerateAppxPackageOnBuild>true</GenerateAppxPackageOnBuild>
+        <AppxPackageSigningEnabled>false</AppxPackageSigningEnabled>
+        <GenerateTestArtifacts>false</GenerateTestArtifacts>
+        <AppxPackageDir>$(MSBuildProjectDirectory)\AppPackages\</AppxPackageDir>
+        <Optimize Condition="'$(Configuration)' == 'Store'">true</Optimize>
+        <!-- Avoid the optional native PDB conversion tool, which is not installed by default. -->
+        <DebugSymbols Condition="'$(Configuration)' == 'Store'">false</DebugSymbols>
+        <DebugType Condition="'$(Configuration)' == 'Store'">none</DebugType>
+        <DefineConstants Condition="'$(Configuration)' == 'Store'">$(DefineConstants);TRACE</DefineConstants>
+        <!-- Store builds produce an unsigned x64/ARM64 upload bundle in AppPackages\. -->
+        <AppxBundle Condition="'$(Configuration)' == 'Store'">Always</AppxBundle>
+        <AppxBundlePlatforms Condition="'$(Configuration)' == 'Store'">x64|arm64</AppxBundlePlatforms>
+        <UapAppxPackageBuildMode Condition="'$(Configuration)' == 'Store'">StoreUpload</UapAppxPackageBuildMode>
+        <!-- The default also splits languages into resource packs that never reach the bundle. -->
+        <AppxBundleAutoResourcePackageQualifiers Condition="'$(Configuration)' == 'Store'">Scale|DXFeatureLevel</AppxBundleAutoResourcePackageQualifiers>
+        <!--
+            WindowsAppSDKSelfContained bundles the Windows App SDK runtime in each package,
+            avoiding a separate Windows App Runtime installation.
         -->
         <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
         <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
         <SupportedOSPlatformVersion>10.0.17763.0</SupportedOSPlatformVersion>
         <Nullable>enable</Nullable>
+        <!-- CsWin32 (NativeMethods.txt) generates unsafe struct marshalling for a few APIs. -->
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
         <!--
             Auto-resolve RuntimeIdentifier from the host SDK when the caller hasn't pinned
             Platform / RuntimeIdentifier explicitly. Lets `dotnet build` / `dotnet run`
@@ -38,20 +54,66 @@
             self-contained build path requires a concrete RID.
         -->
         <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == '' And ('$(Platform)' == '' Or '$(Platform)' == 'AnyCPU' Or '$(Platform)' == 'Any CPU')">$(NETCoreSdkPortableRuntimeIdentifier)</RuntimeIdentifier>
+        <!--
+            When a concrete Platform is pinned (e.g. the Store bundle build fans out over
+            AppxBundlePlatforms="x64|arm64"), map it to a RID so the self-contained
+            WindowsAppSDK path still has one. Without this, each per-arch sub-build sets
+            Platform but leaves RuntimeIdentifier empty and self-contained bundling fails.
+        -->
+        <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == '' And '$(Platform)' == 'x64'">win-x64</RuntimeIdentifier>
+        <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == '' And '$(Platform)' == 'ARM64'">win-arm64</RuntimeIdentifier>
+    </PropertyGroup>
+
+    <!--
+        All packaged builds can target x64 and ARM64. Restore assets for both RIDs so Store
+        bundle sub-builds do not fail NETSDK1047.
+    -->
+    <PropertyGroup Condition="'$(WindowsPackageType)' == 'MSIX'">
+        <RuntimeIdentifiers>win-x64;win-arm64</RuntimeIdentifiers>
     </PropertyGroup>
     <!-- </snippet:template-shape> -->
 
     <ItemGroup>
-        <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.0.1" />
-        <PackageReference Include="Microsoft.UI.Reactor" Version="0.1.0-preview.4" />
-        <PackageReference Include="WinUIEx" Version="2.9.1" />
+        <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.3.1" />
+        <PackageReference Include="Microsoft.UI.Reactor" Version="0.1.0-preview.12" />
+        <PackageReference Include="WinUIEx" Version="2.9.3" />
+        <!-- P/Invoke generated at compile time from NativeMethods.txt; nothing ships at runtime. -->
+        <PackageReference Include="Microsoft.Windows.CsWin32" Version="0.3.335">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+    </ItemGroup>
 
+    <!-- The test project links individual files from here; keep its sources out of the app. -->
+    <ItemGroup>
+        <Compile Remove="traydog.Tests\**" />
+        <None Remove="traydog.Tests\**" />
+        <Content Remove="traydog.Tests\**" />
+    </ItemGroup>
+
+    <!--
+        Idle footprint: a tray app spends nearly all its time hidden. No background GC thread
+        (a gen2 on a few-MB heap is sub-millisecond), no PGO instrumentation tier, and no
+        EventSources outside Debug (dotnet-counters/trace show nothing on those builds).
+    -->
+    <PropertyGroup>
+        <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
+        <TieredPGO>false</TieredPGO>
+        <EventSourceSupport Condition="'$(Configuration)' != 'Debug'">false</EventSourceSupport>
+    </PropertyGroup>
+
+    <!-- Windows NLS instead of ICU: icu.dll and its ~30 MB data file never load. WinUI formats through NLS anyway. -->
+    <ItemGroup>
+        <RuntimeHostConfigurationOption Include="System.Globalization.UseNls" Value="true" />
     </ItemGroup>
 
     <!-- Tray icon bitmaps. WinUIEx's TrayIcon loads / swaps icons by file path at
          runtime (SetIcon), so every status icon must sit next to the exe. -->
     <ItemGroup>
         <Content Include="Assets\*.ico">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </Content>
+        <Content Include="Assets\trayicon.png">
             <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
         </Content>
     </ItemGroup>
@@ -68,8 +130,22 @@
         unconditioned ItemGroup above.
     -->
     <ItemGroup Condition="'$(Configuration)' == 'Debug'">
-        <PackageReference Include="Microsoft.UI.Reactor.Devtools" Version="0.1.0-preview.4" />
+        <PackageReference Include="Microsoft.UI.Reactor.Devtools" Version="0.1.0-preview.12" />
         <RuntimeHostConfigurationOption Include="Reactor.DevtoolsSupport" Value="true" Trim="true" />
+    </ItemGroup>
+
+
+    <PropertyGroup Condition="'$(DisableHasPackageAndPublishMenuAddedByProject)'!='true' and '$(EnableMsixTooling)'=='true'">
+        <HasPackageAndPublishMenu>true</HasPackageAndPublishMenu>
+    </PropertyGroup>
+
+    <!-- All image assets ship in the MSIX; manifest image variants are indexed into its PRI. -->
+    <ItemGroup>
+        <AppxManifest Include="Package.appxmanifest">
+            <SubType>Designer</SubType>
+        </AppxManifest>
+        <Content Include="Assets\*.png" />
+        <Content Include="Assets\*.gif" />
     </ItemGroup>
 
 </Project>

@@ -1,0 +1,20 @@
+<Solution>
+  <Configurations>
+    <BuildType Name="Debug" />
+    <BuildType Name="Release" />
+    <!-- Packaged single-project MSIX build; see the Store PropertyGroup in traydog.csproj. -->
+    <BuildType Name="Store" />
+    <Platform Name="x64" />
+    <Platform Name="ARM64" />
+  </Configurations>
+  <Project Path="traydog.csproj">
+    <Platform Solution="*|x64" Project="x64" />
+    <Platform Solution="*|ARM64" Project="ARM64" />
+    <Deploy />
+  </Project>
+  <!-- Plain net10.0 unit tests over the app's WinRT-free logic (linked files, no project reference). -->
+  <Project Path="traydog.Tests/traydog.Tests.csproj">
+    <Platform Solution="*|x64" Project="Any CPU" />
+    <Platform Solution="*|ARM64" Project="Any CPU" />
+  </Project>
+</Solution>
