@@ -63,7 +63,12 @@ static class Monitors
     public static void Choose(string id, bool on)
     {
         var current = Switch(id);
-        var next = current.Choose(on);
+        // A situation in charge may want the monitor put back after a while.
+        DateTime? expiresAt = current.Demand is { } demand &&
+                              SituationEngine.State.Find(demand.SituationId)?.ReassertAfter is { } after
+            ? DateTime.Now + after
+            : null;
+        var next = current.Choose(on, expiresAt);
         if (next.Usual != current.Usual)
             SettingsService.SetMonitorOn(id, next.Usual);
         Apply(id, next);
@@ -74,9 +79,14 @@ static class Monitors
     // Situations re-evaluated: each monitor gets its demand, or none.
     public static void ApplyDemands(IReadOnlyDictionary<string, SituationDemand> demands)
     {
+        var now = DateTime.Now;
         foreach (var monitor in Registered)
-            Apply(monitor.Id, Switch(monitor.Id).WithDemand(demands.TryGetValue(monitor.Id, out var d) ? d : null));
+            Apply(monitor.Id, Switch(monitor.Id).WithDemand(demands.TryGetValue(monitor.Id, out var d) ? d : null, now));
     }
+
+    // When the earliest user override runs out and a situation should take over again; null if none will.
+    public static DateTime? NextOverrideExpiry() =>
+        Switches.Values.Select(s => s.Override?.Expires).Where(e => e is not null).Min();
 
     // App exit: stop everything without recording "off" as anyone's choice.
     public static void Stop()

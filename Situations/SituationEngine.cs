@@ -69,6 +69,8 @@ static class SituationEngine
         _saveTimer.IsRepeating = false;
         _saveTimer.Interval = SaveDelay;
         _saveTimer.Tick += (_, _) => FlushSave();
+        // A hand-switched monitor can come with an expiry that needs the same timer.
+        Monitors.Changed += () => ScheduleWake(DateTime.Now);
 
         State = State with { Situations = SituationStore.Load() };
         UpdateSensors();
@@ -185,8 +187,6 @@ static class SituationEngine
         });
 
         WatchResume(needed != SensorKind.None);
-        if (!needed.HasFlag(SensorKind.Clock))
-            _clockTimer?.Stop();
     }
 
     static void SetSensor<T>(ref T? sensor, bool on, Func<T> create) where T : class, IDisposable
@@ -256,18 +256,29 @@ static class SituationEngine
         };
         Changed?.Invoke();
 
-        ScheduleClock(now);
+        ScheduleWake(now);
     }
 
-    static void ScheduleClock(DateTime now)
+    // One timer for both reasons to look again: the next time boundary, and the moment a hand-switched
+    // monitor goes back to its situation.
+    static void ScheduleWake(DateTime now)
     {
-        if (_clockTimer is null || !SituationPolicy.SensorsFor(Watched).HasFlag(SensorKind.Clock))
+        if (_clockTimer is null)
+            return;
+
+        DateTime? wake = Monitors.NextOverrideExpiry();
+        if (SituationPolicy.SensorsFor(Watched).HasFlag(SensorKind.Clock))
+        {
+            var clock = SituationPolicy.NextClockCheck(Watched, now);
+            wake = wake is { } expiry && expiry < clock ? expiry : clock;
+        }
+
+        _clockTimer.Stop();
+        if (wake is not { } at)
             return;
 
         // A second past the boundary, so the evaluation lands on the far side of it.
-        var wait = SituationPolicy.NextClockCheck(Watched, now) - now + TimeSpan.FromSeconds(1);
-        _clockTimer.Stop();
-        _clockTimer.Interval = wait;
+        _clockTimer.Interval = at - now + TimeSpan.FromSeconds(1);
         _clockTimer.Start();
     }
 }

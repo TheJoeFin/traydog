@@ -16,6 +16,14 @@ sealed record Situation(
     public static Situation Create(string name) =>
         new(Guid.NewGuid().ToString("N"), name, true, SituationMatch.All, [], []);
 
+    // How long the user's own switch of a monitor holds before this situation takes over again while
+    // it still applies; 0 keeps the user's choice until the situation changes. Persisted as minutes.
+    public int ReassertMinutes { get; init; }
+
+    public static readonly int[] ReassertChoices = [0, 15, 30, 60, 120, 240];
+
+    public TimeSpan? ReassertAfter => ReassertMinutes > 0 ? TimeSpan.FromMinutes(ReassertMinutes) : null;
+
     // A situation with no conditions is never active, so a half-built one can't switch anything.
     public bool IsActive(SituationContext now) =>
         Enabled && Conditions.Count > 0 &&

@@ -42,15 +42,27 @@ static class SituationText
         string.IsNullOrWhiteSpace(situation.Name) ? "Untitled situation" : situation.Name.Trim();
 
     // Why a monitor is in its state, for the popout; null when it's simply the user's usual choice.
-    public static string? Reason(MonitorSwitch monitor, Func<string, Situation?> findSituation)
+    public static string? Reason(MonitorSwitch monitor, Func<string, Situation?> findSituation, IFormatProvider? culture = null)
     {
         if (monitor.Override is { } o)
-            return $"Turned {OnOff(o.On)} by you, overriding “{NameOf(o.Overrode.SituationId)}”";
+        {
+            string text = $"Turned {OnOff(o.On)} by you, overriding “{NameOf(o.Overrode.SituationId)}”";
+            return o.Expires is { } expires ? $"{text} until {expires.ToString("t", culture)}" : text;
+        }
 
         return monitor.Demand is { } d ? $"Turned {OnOff(d.On)} by “{NameOf(d.SituationId)}”" : null;
 
         string NameOf(string id) => findSituation(id) is { } s ? Name(s) : "a situation";
     }
+
+    // For the editor's "If you switch a monitor yourself" choice.
+    public static string ReassertLabel(int minutes) => minutes switch
+    {
+        <= 0 => "Leave it until the situation changes",
+        < 60 => $"Put it back after {minutes} minutes",
+        60 => "Put it back after 1 hour",
+        _ => $"Put it back after {minutes / 60} hours"
+    };
 
     public static string ActionLabel(bool? turnOn) => turnOn switch
     {

@@ -252,6 +252,41 @@ internal sealed class SituationTests
     }
 
     [TestMethod]
+    public void MonitorSwitch_ExpiredOverrideLetsTheSituationReassert()
+    {
+        var work = new SituationDemand("work", true);
+        var start = new DateTime(2026, 1, 5, 9, 0, 0);
+        var monitor = new MonitorSwitch(false, null, null).WithDemand(work, start).Choose(false, start.AddMinutes(30));
+
+        Assert.IsFalse(monitor.WithDemand(work, start.AddMinutes(29)).IsOn, "still within the grace period");
+        Assert.IsTrue(monitor.WithDemand(work, start.AddMinutes(30)).IsOn, "the situation takes over at the expiry");
+        Assert.IsNull(monitor.WithDemand(work, start.AddMinutes(31)).Override);
+        Assert.IsFalse(monitor.Usual);
+    }
+
+    [TestMethod]
+    public void Situation_ReassertAfterIsOffByDefaultAndSurvivesJson()
+    {
+        Assert.IsNull(Situation.Create("x").ReassertAfter);
+
+        var situation = Situation.Create("x") with { ReassertMinutes = 60 };
+        string json = SituationJson.Write([situation]);
+        Assert.AreEqual(TimeSpan.FromHours(1), SituationJson.Read(json).Single().ReassertAfter);
+        Assert.IsNull(SituationJson.Read(
+            """{"version": 1, "situations": [{"id": "a", "name": "x", "enabled": true, "match": "All", "conditions": [], "actions": []}]}""")
+            .Single().ReassertAfter, "files from before this setting read as off");
+    }
+
+    [TestMethod]
+    public void Reason_MentionsWhenAnOverrideEnds()
+    {
+        var work = Situation.Create("At work");
+        var demand = new SituationDemand(work.Id, true);
+        var monitor = new MonitorSwitch(false, demand, new UserOverride(demand, false, new DateTime(2026, 1, 5, 15, 15, 0)));
+        Assert.AreEqual("Turned off by you, overriding “At work” until 3:15 PM", SituationText.Reason(monitor, _ => work, EnUs));
+    }
+
+    [TestMethod]
     public void MonitorSwitch_WithoutADemandChoosingSetsTheUsual()
     {
         var monitor = new MonitorSwitch(false, null, null).Choose(true);

@@ -6,8 +6,12 @@ using System.Linq;
 readonly record struct SituationDemand(string SituationId, bool On);
 
 // The user switched a monitor by hand while a situation was in charge of it. It holds until that
-// situation's demand changes (the situation ends, or another one takes over), then situations decide again.
-readonly record struct UserOverride(SituationDemand Overrode, bool On);
+// situation's demand changes (the situation ends, or another one takes over), or until Expires if the
+// situation asked to put things back after a while; then situations decide again.
+readonly record struct UserOverride(SituationDemand Overrode, bool On, DateTime? Expires = null)
+{
+    public bool HasExpired(DateTime now) => Expires is { } expires && now >= expires;
+}
 
 // One monitor's switch: the user's usual choice (persisted; what happens when no situation cares),
 // the current situation demand, and any override of it.
@@ -15,16 +19,19 @@ sealed record MonitorSwitch(bool Usual, SituationDemand? Demand, UserOverride? O
 {
     public bool IsOn => Override?.On ?? Demand?.On ?? Usual;
 
-    public MonitorSwitch WithDemand(SituationDemand? demand) => this with
+    // now is when this is being decided; an override that has expired by then is dropped, so the
+    // situation reasserts itself even though its demand hasn't changed.
+    public MonitorSwitch WithDemand(SituationDemand? demand, DateTime? now = null) => this with
     {
         Demand = demand,
-        Override = Override is { } o && o.Overrode == demand ? o : null
+        Override = Override is { } o && o.Overrode == demand && !(now is { } at && o.HasExpired(at)) ? o : null
     };
 
     // The user flipped the switch. With no situation in charge that's the new usual; otherwise it
-    // overrides the situation (or, if it agrees with it, drops an earlier override).
-    public MonitorSwitch Choose(bool on) => Demand is { } demand
-        ? this with { Override = on == demand.On ? null : new UserOverride(demand, on) }
+    // overrides the situation (or, if it agrees with it, drops an earlier override). expiresAt is
+    // when the situation takes over again; null means when its demand changes.
+    public MonitorSwitch Choose(bool on, DateTime? expiresAt = null) => Demand is { } demand
+        ? this with { Override = on == demand.On ? null : new UserOverride(demand, on, expiresAt) }
         : this with { Usual = on, Override = null };
 }
 

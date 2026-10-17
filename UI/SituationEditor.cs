@@ -17,6 +17,7 @@ class SituationEditor : Component<SituationEditorProps>
 {
     static readonly TimeSpan NameCommitDelay = TimeSpan.FromMilliseconds(300);
     static readonly string[] MatchLabels = ["all of these are true", "any of these is true"];
+    static readonly string[] ReassertLabels = [.. Situation.ReassertChoices.Select(SituationText.ReassertLabel)];
     static readonly string[] ActionLabels = [SituationText.ActionLabel(null), SituationText.ActionLabel(true), SituationText.ActionLabel(false)];
 
     public override Element Render()
@@ -69,8 +70,14 @@ class SituationEditor : Component<SituationEditorProps>
 
             Section("Then").WithKey("then"),
             (FlexColumn(Monitors.All.Select(m => MonitorRow(m, situation, Update).WithKey(m.Id)).ToArray()) with { RowGap = 8 }).WithKey("monitors"),
+            (FlexRow(
+                Body("If you switch one yourself"),
+                ComboBox(ReassertLabels, Math.Max(0, Array.IndexOf(Situation.ReassertChoices, situation.ReassertMinutes)),
+                        i => Update(situation with { ReassertMinutes = Situation.ReassertChoices[Math.Clamp(i, 0, Situation.ReassertChoices.Length - 1)] }))
+                    .AutomationName("If you switch a monitor yourself")
+            ) with { ColumnGap = 8, AlignItems = FlexAlign.Center }).WithKey("reassert"),
             Caption("When the situation ends, each monitor goes back to how you left it, unless another situation is in charge. " +
-                    "Switching a monitor yourself while a situation is in charge lasts until the situation changes.")
+                    "Switching a monitor yourself holds until the situation changes, or for the time you choose here.")
                 .Foreground(Theme.SecondaryText)
                 .TextWrapping(TextWrapping.WrapWholeWords)
                 .WithKey("ends"),
