@@ -24,7 +24,7 @@ abstract class PopoutContent : Component
 
         UseEffect(() =>
         {
-            if (popout.IsVisible)
+            if (popout.IsVisible && popout.FocusOnShow)
                 DispatcherQueue.GetForCurrentThread().TryEnqueue(() => FocusWhenLoaded(target.Current as Control));
         }, popout.TimesShown);
 

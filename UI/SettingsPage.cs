@@ -49,6 +49,7 @@ class SettingsPage : PopoutContent
                         .MinWidth(200)
                 ) with { RowGap = 8 }
             ),
+            Button("Process monitoring settings", TrayApp.ShowResources).AutomationId("ResourceSettings"),
             Caption(Version).Foreground(Theme.TertiaryText)
         ) with { RowGap = 12 };
 

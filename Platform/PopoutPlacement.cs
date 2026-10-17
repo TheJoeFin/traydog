@@ -56,4 +56,8 @@ static class PopoutPlacement
 
     // Logical (96-DPI) pixels to physical pixels at the given DPI, rounding up so content never clips.
     public static int ToPhysical(int logical, uint dpi) => (int)Math.Ceiling(logical * (dpi == 0 ? 96 : dpi) / 96.0);
+
+    public static Size FitToWorkArea(Size requested, Size workArea, int margin) => new(
+        Math.Clamp(requested.Width, 1, Math.Max(1, workArea.Width - 2 * margin)),
+        Math.Clamp(requested.Height, 1, Math.Max(1, workArea.Height - 2 * margin)));
 }

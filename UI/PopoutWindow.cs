@@ -18,8 +18,8 @@ using static Microsoft.UI.Reactor.Factories;
 // real and the next open builds a new window, so the idle app holds no XAML tree.
 sealed class PopoutWindow
 {
-    public const int Width = 360;
-    public const int Height = 400;
+    public const int Width = MonitoringLayout.Width;
+    public const int Height = MonitoringLayout.Height;
 
     // System backdrops ignore UIElement.Opacity, so the fade uses per-window layered alpha
     // (ReactorWindow.SetOpacity) driven by a frame timer, alongside a small slide.
@@ -77,8 +77,7 @@ sealed class PopoutWindow
                 ShowInSwitcher = false,
                 Level = WindowLevel.AlwaysOnTop,
                 CornerStyle = WindowCornerStyle.Rounded,
-                StartPosition = WindowStartPosition.Manual,
-                ManualPosition = (0, 0), // placeholder; Show() positions it next to the tray icon
+                StartPosition = WindowStartPosition.Default, // Show() owns tray-anchored placement.
                 ActivateOnOpen = false,
                 Icon = WindowIcon.FromPath(Path.Combine(AppContext.BaseDirectory, "Assets", "trayicon.ico")),
                 // A stable factory, so Reactor materializes it once and Update() reaches the live one.
@@ -125,28 +124,48 @@ sealed class PopoutWindow
         Show(fromTrayClick: true);
     }
 
-    public void Show(bool fromTrayClick)
+    public void Show(bool fromTrayClick, bool activate = true)
     {
         if (_isClosed)
             return;
 
+        if (_isVisible)
+        {
+            if (activate)
+            {
+                _window.Activate();
+                PInvoke.SetForegroundWindow(_hwnd);
+            }
+            return;
+        }
+
         // Position before showing so the window never flashes at a stale location.
-        WindowPlacement.PositionNearTray(_window.AppWindow, Width, Height, fromTrayClick);
+        // Size once per opening; new alerts scroll instead of moving an existing click target.
+        int height = PopoutStore.Current.Page == PopoutPage.Status
+            ? MonitoringLayout.PreferredHeight(ResourceMonitor.State.Alerts.Count) : Height;
+        WindowPlacement.PositionNearTray(_window.AppWindow, Width, height, fromTrayClick);
         _baseX = _window.AppWindow.Position.X;
         _baseY = _window.AppWindow.Position.Y;
 
         _hideTimer.Stop();
         _closeTimer.Stop();
-        _isShowing = true;
+        _isShowing = activate;
         _isVisible = true;
 
         // Re-read here too: not every taskbar setting change raises ColorValuesChanged.
         ApplyShellTheme();
         PlayShowAnimation();
 
-        _window.Activate();
-        PInvoke.SetForegroundWindow(_hwnd);
-        PopoutStore.SetVisible(true);
+        if (activate)
+        {
+            _window.Activate();
+            PInvoke.SetForegroundWindow(_hwnd);
+        }
+        else
+        {
+            _window.AppWindow.Show(activateWindow: false);
+        }
+        PopoutStore.SetVisible(true, activate);
     }
 
     public void Hide()

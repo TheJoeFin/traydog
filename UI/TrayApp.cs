@@ -20,6 +20,7 @@ static class TrayApp
     static string? _trayIconFile;
     static PopoutWindow? _popout;
     static SituationsWindow? _situations;
+    static ResourcesWindow? _resources;
     static bool _isExiting;
 
     // Runs on the UI thread from ReactorApp.Run's startup callback.
@@ -31,7 +32,9 @@ static class TrayApp
 
         // Monitors resume the user's choice, then situations get their say before the icon appears.
         Watchdog.Start();
+        ResourceMonitor.Start();
         Monitors.Register(InternetMonitor.Instance);
+        Monitors.Register(ResourceMonitor.Instance);
         SituationEngine.Start();
 
         var state = Watchdog.State;
@@ -43,6 +46,8 @@ static class TrayApp
         WindowPlacement.SetTrayIcon(_trayIcon);
         Watchdog.Changed += UpdateTrayIcon;
         SituationEngine.Changed += UpdateTrayIcon;
+        ResourceMonitor.Changed += UpdateTrayIcon;
+        ResourceMonitor.AlertRaised += OnResourceAlert;
         PopoutStore.Changed += UpdateProbeCadence;
 
         // First run: show where the app lives instead of launching into silence. Later launches
@@ -77,6 +82,32 @@ static class TrayApp
         _situations.Activate();
     }
 
+    public static void ShowResources()
+    {
+        _popout?.Hide();
+        if (_resources is null)
+        {
+            var window = new ResourcesWindow();
+            window.Closed += () =>
+            {
+                if (_resources == window)
+                    _resources = null;
+                ReleaseIdleIfNoWindows();
+            };
+            _resources = window;
+        }
+        _resources.Activate();
+    }
+
+    static void OnResourceAlert()
+    {
+        if (_popout?.IsVisible == true)
+            return;
+
+        PopoutStore.Navigate(PopoutPage.Status);
+        EnsurePopout().Show(fromTrayClick: false, activate: false);
+    }
+
     // Probe faster only while someone is looking at the status page (not behind Settings).
     static void UpdateProbeCadence()
     {
@@ -92,7 +123,7 @@ static class TrayApp
             return;
 
         var state = Watchdog.State;
-        string iconFile = StatusText.IconFile(state.Monitoring, state.Net.Status);
+        string iconFile = ResourceMonitor.State.Alerts.Count > 0 ? "Warning.ico" : StatusText.IconFile(state.Monitoring, state.Net.Status);
         if (iconFile != _trayIconFile)
         {
             _trayIconFile = iconFile;
@@ -109,7 +140,11 @@ static class TrayApp
         var state = Watchdog.State;
         var situations = SituationEngine.State;
         var active = situations.Situations.Where(s => situations.IsActive(s.Id)).Select(SituationText.Name);
-        return StatusText.Tooltip(state.Monitoring, state.Net.Status, active);
+        var resources = ResourceMonitor.State;
+        string tooltip = StatusText.Tooltip(state.Monitoring, state.Net.Status,
+            new[] { resources.Alerts.Count > 0 ? $"{resources.Alerts.Count} process alert(s)" :
+                resources.Running ? "Process monitoring on" : "" }.Where(s => s.Length > 0).Concat(active));
+        return tooltip;
     }
 
     // WinUIEx loads the .ico by path at runtime; the .csproj copies every Assets\*.ico next to the exe.
@@ -126,6 +161,9 @@ static class TrayApp
 
         var settings = new MenuFlyoutItem { Text = "Settings", Icon = new FontIcon { Glyph = "" } };
         settings.Click += (_, _) => ShowPopout(fromTrayClick: true, PopoutPage.Settings);
+
+        var resources = new MenuFlyoutItem { Text = "Processes", Icon = new FontIcon { Glyph = ResourceMonitor.Instance.Glyph } };
+        resources.Click += (_, _) => ShowResources();
 
         var exit = new MenuFlyoutItem { Text = "Exit", Icon = new FontIcon { Glyph = "" } };
         exit.Click += (_, _) => Exit();
@@ -144,6 +182,7 @@ static class TrayApp
             menu.Items.Add(toggle);
         }
         menu.Items.Add(situations);
+        menu.Items.Add(resources);
         menu.Items.Add(settings);
         menu.Items.Add(new MenuFlyoutSeparator());
         menu.Items.Add(exit);
@@ -164,7 +203,6 @@ static class TrayApp
     {
         PopoutStore.Navigate(page);
         var popout = EnsurePopout();
-        popout.Hide();
         popout.Show(fromTrayClick);
     }
 
@@ -188,7 +226,7 @@ static class TrayApp
 
     static void ReleaseIdleIfNoWindows()
     {
-        if (!_isExiting && _popout is null && _situations is null)
+        if (!_isExiting && _popout is null && _situations is null && _resources is null)
             MemoryService.ReleaseIdle();
     }
 
@@ -197,9 +235,12 @@ static class TrayApp
         _isExiting = true;
         _popout?.Close();
         _situations?.Close();
+        _resources?.Close();
         PopoutStore.Changed -= UpdateProbeCadence;
         Watchdog.Changed -= UpdateTrayIcon;
         SituationEngine.Changed -= UpdateTrayIcon;
+        ResourceMonitor.Changed -= UpdateTrayIcon;
+        ResourceMonitor.AlertRaised -= OnResourceAlert;
         SituationEngine.Stop();
         Monitors.Stop();
 

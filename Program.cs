@@ -5,6 +5,15 @@ using Microsoft.UI.Xaml;                 // Application
 
 AppDomain.CurrentDomain.UnhandledException += (_, e) => CrashLog.Write(e.ExceptionObject as Exception);
 
+if (args.Length > 0 && args[0] == "--resource-collector")
+{
+    if (args.Length == 3 && int.TryParse(args[2], out int parentPid))
+        await ResourceCollector.RunAsync(args[1], parentPid);
+    else
+        CrashLog.Write(new ArgumentException("Invalid resource collector arguments."));
+    return;
+}
+
 // --devtools (and the deprecated --preview): mount the popout content in an ordinary window so
 // Reactor devtools and the VS embedded preview can drive it. No tray icon, no single instance.
 if (Array.Exists(args, a => a is "--devtools" or "--preview"))
@@ -13,7 +22,9 @@ if (Array.Exists(args, a => a is "--devtools" or "--preview"))
         configure: _ =>
         {
             Watchdog.Start();
+            ResourceMonitor.Start();
             Monitors.Register(InternetMonitor.Instance);
+            Monitors.Register(ResourceMonitor.Instance);
             SituationEngine.Start();
             PopoutStore.SetVisible(true);
         });

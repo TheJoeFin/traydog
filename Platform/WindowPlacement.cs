@@ -46,7 +46,10 @@ static class WindowPlacement
         Point anchor = GetAnchor(fromTrayClick);
         RectInt32 work = DisplayArea.GetFromPoint(new PointInt32(anchor.X, anchor.Y), DisplayAreaFallback.Primary).WorkArea;
         uint dpi = GetDpiForPoint(anchor);
-        var size = new Size(PopoutPlacement.ToPhysical(width, dpi), PopoutPlacement.ToPhysical(height, dpi));
+        int margin = PopoutPlacement.ToPhysical(WindowMargin, dpi);
+        var size = PopoutPlacement.FitToWorkArea(
+            new Size(PopoutPlacement.ToPhysical(width, dpi), PopoutPlacement.ToPhysical(height, dpi)),
+            new Size(work.Width, work.Height), margin);
 
         bool haveTaskbar = TryGetTaskbar(out Rectangle taskbar, out TaskbarEdge edge);
         Point position = PopoutPlacement.Calculate(
@@ -55,7 +58,7 @@ static class WindowPlacement
             new Rectangle(work.X, work.Y, work.Width, work.Height),
             haveTaskbar ? taskbar : null,
             edge,
-            PopoutPlacement.ToPhysical(WindowMargin, dpi));
+            margin);
 
         window.MoveAndResize(new RectInt32(position.X, position.Y, size.Width, size.Height));
     }

@@ -10,7 +10,7 @@ record WatchdogState(bool Monitoring, NetState Net, DateTimeOffset? LastProbeAt,
 // App-lifetime connectivity state shared by the tray icon and the popout (which subscribes through
 // UseExternalStore), so it outlives the popout window.
 //
-// This is traydog's one piece of work while hidden, and the documented exception to "no network
+// This is opt-in work while hidden, and the documented exception to "no network
 // work while hidden": the tray icon *is* the status display. It's opt-in (the user starts it, or a
 // situation they set up does; Monitors decides and remembers the choice), it runs one tiny probe at a
 // time, and it slows to InTrayInterval (a setting, a minute by default) unless the status page is on screen.

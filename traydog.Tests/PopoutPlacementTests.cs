@@ -76,4 +76,15 @@ internal sealed class PopoutPlacementTests
         Assert.AreEqual(16, PopoutPlacement.ToPhysical(13, 115)); // 15.57 -> 16
         Assert.AreEqual(360, PopoutPlacement.ToPhysical(360, 0)); // unknown DPI -> 96
     }
+
+    [TestMethod]
+    public void OversizePopout_FitsInsideTheWorkAreaAtHighDpi()
+    {
+        var size = PopoutPlacement.FitToWorkArea(new Size(960, 1820), new Size(1200, 1000), 24);
+        Assert.AreEqual(new Size(960, 952), size);
+        var position = PopoutPlacement.Calculate(new Point(1180, 1024), size,
+            new Rectangle(0, 0, 1200, 1000), null, TaskbarEdge.Bottom, 24);
+        Assert.IsTrue(position.X + size.Width <= 1200 - 24);
+        Assert.IsTrue(position.Y + size.Height <= 1000 - 24);
+    }
 }

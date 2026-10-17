@@ -6,78 +6,80 @@ using Microsoft.UI.Reactor.Layout;
 using Microsoft.UI.Xaml;                 // TextWrapping
 using static Microsoft.UI.Reactor.Factories;
 
-// The popout's main page: connection status, the monitoring toggle (and which situation, if any,
-// set it), a way into situations, and the countdown bar.
+// Monitoring summaries keep their own scroll region so text/status changes never move alert actions.
 class StatusPage : PopoutContent
 {
     public override Element Render()
     {
         var state = UseExternalStore(Watchdog.Subscribe, () => Watchdog.State);
         var internet = UseExternalStore(Monitors.Subscribe, () => Monitors.Switch(InternetMonitor.MonitorId));
+        var processes = UseExternalStore(Monitors.Subscribe, () => Monitors.Switch(ResourceMonitor.MonitorId));
         var situations = UseExternalStore(SituationEngine.Subscribe, () => SituationEngine.State);
-        string? reason = SituationText.Reason(internet, situations.Find);
+        var resources = UseExternalStore(ResourceMonitor.Subscribe, () => ResourceMonitor.State);
+        string? internetReason = SituationText.Reason(internet, situations.Find);
+        string? processReason = SituationText.Reason(processes, situations.Find);
         var popout = UsePopout();
-        var actionButton = UseFocusWhenShown(popout);
-        string actionLabel = state.Monitoring ? "Stop monitoring" : "Start monitoring";
+        var settingsButton = UseFocusWhenShown(popout);
 
         var body = FlexColumn(
             FlexRow(
-                Image("ms-appx:///Assets/Dog-face.png").Width(60).Height(48).AutomationName("traydog logo"),
+                Image("ms-appx:///Assets/Dog-face.png").Width(48).Height(40).AutomationName("traydog logo"),
                 (FlexColumn(
-                    Heading(StatusText.AppName),
-                    Caption("Your internet companion").Foreground(Theme.SecondaryText)
+                    Subtitle(StatusText.AppName),
+                    Caption("Your quiet watchdog").Foreground(Theme.SecondaryText)
                 ) with { RowGap = 4 }).Flex(grow: 1, basis: 0),
-                IconButton("", "Settings", () => PopoutStore.Navigate(PopoutPage.Settings))
+                IconButton("", "Situations", TrayApp.ShowSituations).AutomationId("OpenSituations")
+                    .ToolTip(SituationsLabel(situations)),
+                IconButton("", "Settings", () => PopoutStore.Navigate(PopoutPage.Settings)).AutomationId("OpenSettings").Ref(settingsButton)
             ) with { ColumnGap = 12, AlignItems = FlexAlign.Center },
             Card(
                 FlexColumn(
-                    Caption("CONNECTION STATUS").Foreground(Theme.SecondaryText),
-                    SubHeading(StatusText.Headline(state.Monitoring, state.Net.Status)).LiveRegion(),
-                    Body(StatusText.Description(state.Monitoring, state.Net))
-                        .Foreground(Theme.SecondaryText)
-                        .TextWrapping(TextWrapping.WrapWholeWords)
-                ) with { RowGap = 8 }
+                    FlexRow(
+                        Body("Internet").Flex(grow: 1, basis: 0),
+                        ToggleSwitch(state.Monitoring, on => Monitors.Choose(InternetMonitor.MonitorId, on), onContent: "", offContent: "")
+                            .MinWidth(0).AutomationName("Internet monitoring").AutomationId("ToggleMonitoring")
+                    ) with { ColumnGap = 12, AlignItems = FlexAlign.Center },
+                    Summary(StatusText.Headline(state.Monitoring, state.Net.Status))
+                        .ToolTip($"{StatusText.Description(state.Monitoring, state.Net)}\n{StatusText.Cadence(state.Monitoring, Watchdog.WhileOpenInterval, Watchdog.InTrayInterval)}")
+                        .AutomationId("ConnectionStatus"),
+                    state.Monitoring ? Summary(state.Net.Detail) : null,
+                    internetReason is null ? null : ResourcesPage.Note(internetReason)
+                ) with { RowGap = 4 }
             ),
-            FlexColumn(
-                Button(actionLabel, () => Monitors.Choose(InternetMonitor.MonitorId, !state.Monitoring))
-                    .AccentButton()
-                    .AutomationName(actionLabel)
-                    .AutomationId("ToggleMonitoring") // stable selector for UI automation
-                    .Ref(actionButton),
-                Caption(StatusText.Cadence(state.Monitoring, Watchdog.WhileOpenInterval, Watchdog.InTrayInterval))
-                    .Foreground(Theme.SecondaryText)
-                    .TextWrapping(TextWrapping.WrapWholeWords),
-                reason is null ? null : Caption(reason).TextWrapping(TextWrapping.WrapWholeWords).LiveRegion()
-            ) with { RowGap = 8 },
-            SituationsLink(situations)
-        ) with { RowGap = 16 };
+            Card(FlexColumn(
+                FlexRow(
+                    Body("Processes").Flex(grow: 1, basis: 0),
+                    IconButton("", "Process monitoring settings", TrayApp.ShowResources).AutomationId("OpenResources"),
+                    ToggleSwitch(resources.Running, on => Monitors.Choose(ResourceMonitor.MonitorId, on), onContent: "", offContent: "")
+                        .MinWidth(0).AutomationName("Process monitoring").AutomationId("ToggleProcessMonitoring")
+                ) with { ColumnGap = 12, AlignItems = FlexAlign.Center },
+                Summary(resources.Running
+                    ? $"{ResourceText.Coverage(resources.Options, resources.IoConnected)} · {resources.Options.ScanSeconds}s scans"
+                    : "Off · No background process scans")
+                    .ToolTip(resources.Running
+                        ? $"{resources.Candidates} process(es) being checked closely. {resources.Unavailable} protected or exited process(es) could not be read. Last scan: {(resources.LastScan is { } last ? last.ToString("T") : "not yet")}."
+                        : "No process scans or resource tracing run in the background."),
+                processReason is null ? null : ResourcesPage.Note(processReason)
+            ) with { RowGap = 4 })
+        ) with { RowGap = 8 };
 
         return FlexColumn(
-            Border(body).Padding(20).Flex(grow: 1, basis: 0),
+            ScrollView(Border(body).Padding(20, 16, 20, 8)).Height(MonitoringLayout.SummaryHeight).Flex(shrink: 0),
+            Component<ResourceAlertsContent>().Flex(grow: 1, basis: 0),
             Component<RefreshBar, RefreshBarProps>(new(state.Monitoring, state.LastProbeAt, state.NextProbeAt, popout.IsVisible)));
     }
 
-    // "Situations · At work", or an invitation when there are none; opens the editor.
-    static Element SituationsLink(SituationState situations)
+    static Microsoft.UI.Reactor.Core.TextBlockElement Summary(string text) =>
+        Caption(text).Foreground(Theme.SecondaryText).TextWrapping(TextWrapping.NoWrap)
+            .TextTrimming(TextTrimming.CharacterEllipsis).ToolTip(text);
+
+    static string SituationsLabel(SituationState situations)
     {
         var active = situations.Situations.Where(s => situations.IsActive(s.Id)).Select(SituationText.Name).ToList();
-        string label =
+        return
             situations.Situations.Count == 0 ? "Set up situations" :
             active.Count == 0 ? "Situations · none active" :
             $"Situations · {string.Join(", ", active)}";
-
-        return Button(
-                FlexRow(
-                    Icon(FontIcon("", fontSize: 14)),
-                    Caption(label).TextWrapping(TextWrapping.NoWrap)
-                ) with { ColumnGap = 8, AlignItems = FlexAlign.Center },
-                TrayApp.ShowSituations)
-            .SubtleButton()
-            .AutomationName($"{label}. Open the situations editor")
-            .AutomationId("OpenSituations")
-            .ToolTip("Turn monitoring on and off automatically by network, place, power, devices, or time")
-            .Margin(-11, 0, 0, 0) // line the text up with the content above
-            .Flex(alignSelf: FlexAlign.FlexStart);
     }
 }
 

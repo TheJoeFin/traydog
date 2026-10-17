@@ -74,6 +74,11 @@
     <!-- </snippet:template-shape> -->
 
     <ItemGroup>
+        <PackageReference Include="Microsoft.Diagnostics.Tracing.TraceEvent" Version="4.0.0" />
+        <PackageReference Include="Microsoft.Windows.SDK.BuildTools.WinUIAnalyzer" Version="0.7.1">
+          <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+          <PrivateAssets>all</PrivateAssets>
+        </PackageReference>
         <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.3.1" />
         <PackageReference Include="Microsoft.UI.Reactor" Version="0.1.0-preview.12" />
         <PackageReference Include="WinUIEx" Version="2.9.3" />

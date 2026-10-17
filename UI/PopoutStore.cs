@@ -9,7 +9,7 @@ enum PopoutPage
 // What the popout content needs to know about its host: which page to show, whether the window is
 // on screen, and how many times it has been shown (each show is a fresh "open" for focus and for
 // re-reading state that can change outside the app).
-record PopoutState(PopoutPage Page, bool IsVisible, int TimesShown);
+record PopoutState(PopoutPage Page, bool IsVisible, int TimesShown, bool FocusOnShow = true);
 
 // App-lifetime popout state, outside the component tree so the tray menu can open the popout
 // straight onto Settings and a tray click can return it to Status. Components read it through
@@ -30,12 +30,17 @@ static class PopoutStore
 
     public static void Navigate(PopoutPage page) => Publish(Current with { Page = page });
 
-    public static void SetVisible(bool visible)
+    public static void SetVisible(bool visible, bool focusOnShow = true)
     {
         if (visible == Current.IsVisible)
             return;
 
-        Publish(Current with { IsVisible = visible, TimesShown = Current.TimesShown + (visible ? 1 : 0) });
+        Publish(Current with
+        {
+            IsVisible = visible,
+            TimesShown = Current.TimesShown + (visible ? 1 : 0),
+            FocusOnShow = focusOnShow
+        });
     }
 
     static void Publish(PopoutState next)

@@ -3,12 +3,15 @@ APPBARDATA
 FindWindow
 FindWindowEx
 GetAncestor
+GetActiveProcessorCount
 GetClassName
 GetCurrentProcess
 GetCursorPos
 GetDpiForMonitor
 GetDpiForWindow
 GetForegroundWindow
+GetNamedPipeClientProcessId
+GetNamedPipeServerProcessId
 GetWindowRect
 MonitorFromPoint
 NOTIFYICONIDENTIFIER
