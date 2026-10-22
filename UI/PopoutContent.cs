@@ -53,7 +53,7 @@ abstract class PopoutContent : Component
 
     // 36x32 transparent header button with a Segoe Fluent glyph, named and tooltipped for
     // accessibility since it has no text.
-    protected static Element IconButton(string glyph, string name, Action onClick) =>
+    protected static Element IconButton(string glyph, string name, Action? onClick = null) =>
         Button(Icon(FontIcon(glyph, fontSize: 14)), onClick)
             .SubtleButton()
             .Width(36)

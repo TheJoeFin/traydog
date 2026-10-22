@@ -32,7 +32,7 @@ class ResourcesPage : Component
                     .AutomationId("ToggleProcessMonitoring")
             ) with { ColumnGap = 12, AlignItems = FlexAlign.Center }).WithKey("header"),
             Note(state.Running
-                ? $"Scanning every {state.Options.ScanSeconds}s. {state.Candidates} process(es) being checked more closely."
+                ? $"Scanning every {state.Options.ScanSeconds}s. Suspects, alerts, and watched apps rechecked every {state.Options.ConfirmSeconds}s."
                 : "Off. No process scans or resource tracing run in the background.").WithKey("status"),
             reason is null ? null : Note(reason).WithKey("reason"),
             state.StorageError is null ? null : InfoBar("Settings not saved", state.StorageError).Warning().IsClosable(false).WithKey("storage"),
@@ -75,7 +75,7 @@ class ResourceThresholds : Component
 
         return ScrollView(FlexColumn(
             Subtitle("Adaptive checks"),
-            ResourcesPage.Note("Quiet processes use the scan interval. Suspected problems alone are rechecked quickly. Each resource must stay high for the full confirmation period."),
+            ResourcesPage.Note("Quiet processes use the scan interval. Suspects, pending alerts, and watched apps use the recheck interval. Each resource must stay high for the full confirmation period."),
             NumberBox(options.ScanSeconds, v => { if (double.IsFinite(v)) Update(options with { ScanSeconds = (int)Math.Round(v) }); }, "Background scan (seconds)")
                 .Range(5, 3600).SpinButtons().AutomationName("Background scan in seconds").AutomationId("ResourceScanSeconds"),
             NumberBox(options.ConfirmSeconds, v => { if (double.IsFinite(v)) Update(options with { ConfirmSeconds = (int)Math.Round(v) }); }, "Suspect recheck (seconds)")

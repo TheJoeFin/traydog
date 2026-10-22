@@ -123,7 +123,7 @@ static class TrayApp
             return;
 
         var state = Watchdog.State;
-        string iconFile = ResourceMonitor.State.Alerts.Count > 0 ? "Warning.ico" : StatusText.IconFile(state.Monitoring, state.Net.Status);
+        string iconFile = ResourceMonitor.State.PendingCount > 0 ? "Warning.ico" : StatusText.IconFile(state.Monitoring, state.Net.Status);
         if (iconFile != _trayIconFile)
         {
             _trayIconFile = iconFile;
@@ -142,7 +142,9 @@ static class TrayApp
         var active = situations.Situations.Where(s => situations.IsActive(s.Id)).Select(SituationText.Name);
         var resources = ResourceMonitor.State;
         string tooltip = StatusText.Tooltip(state.Monitoring, state.Net.Status,
-            new[] { resources.Alerts.Count > 0 ? $"{resources.Alerts.Count} process alert(s)" :
+            new[] { resources.PendingCount > 0 ? $"{resources.PendingCount} process alert(s)" : "",
+                resources.WatchingCount > 0 ? $"{resources.WatchingCount} watching" : "",
+                resources.StoppedCount > 0 ? $"{resources.StoppedCount} stopped" : "",
                 resources.Running ? "Process monitoring on" : "" }.Where(s => s.Length > 0).Concat(active));
         return tooltip;
     }
