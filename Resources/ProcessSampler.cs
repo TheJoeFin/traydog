@@ -41,11 +41,25 @@ static class ProcessSampler
                     alive.Add(process.Id);
                     if (process.Id is 0 or 4)
                         return;
+                    if (process.HasExited)
+                    {
+                        alive.Remove(process.Id);
+                        return;
+                    }
                     var key = new ProcessKey(process.Id, process.StartTime.ToUniversalTime().Ticks);
                     if (expected is { } e && key != e)
-                        return; // PID was reused
-                    samples.Add(new(key, process.ProcessName, process.TotalProcessorTime.Ticks,
-                        process.WorkingSet64, null, null, Now));
+                    {
+                        alive.Remove(process.Id); // The requested instance exited; this PID was reused.
+                        return;
+                    }
+                    var sample = new ProcessSample(key, process.ProcessName, process.TotalProcessorTime.Ticks,
+                        process.WorkingSet64, null, null, Now);
+                    if (process.HasExited)
+                    {
+                        alive.Remove(process.Id);
+                        return;
+                    }
+                    samples.Add(sample);
                 }
                 catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or NotSupportedException)
                 {

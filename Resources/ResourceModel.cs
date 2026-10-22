@@ -28,6 +28,9 @@ sealed record ResourceOptions(
     public string[] IgnoredNames { get; init; } = IgnoredNames ?? [];
     public string[] OnSightNames { get; init; } = OnSightNames ?? [];
 
+    public ResourceKind IoKinds(bool connected) => !connected ? ResourceKind.None
+        : (DiskEnabled ? ResourceKind.Disk : ResourceKind.None) | (NetworkEnabled ? ResourceKind.Network : ResourceKind.None);
+
     public ResourceOptions Sanitize() => this with
     {
         ScanSeconds = Math.Clamp(ScanSeconds, 5, 3600),
@@ -98,7 +101,17 @@ sealed record ResourceUsage(ProcessKey Key, string Name, double? CpuPercent, lon
     }
 }
 
-sealed record ResourceAlert(ResourceUsage Usage, ResourceKind Kinds, DateTimeOffset At, int SustainedSeconds = 0);
+sealed record ResourceAlert(ResourceUsage Usage, ResourceKind Kinds, DateTimeOffset At, int SustainedSeconds = 0)
+{
+    public bool Watching { get; init; }
+    public ProcessAvailability Availability { get; init; } = ProcessAvailability.Available;
+    public IReadOnlyList<ResourceReading> History { get; init; } = [];
+    public bool IsStopped => Availability == ProcessAvailability.Exited;
+    public bool CanWatch => !Watching && !IsStopped;
+    public ResourceUsage? Current => Availability == ProcessAvailability.Exited
+        ? History.LastOrDefault(p => p.Usage is not null)?.Usage
+        : History.Count > 0 ? History[^1].Usage : null;
+}
 
 static class ResourceText
 {
@@ -116,13 +129,22 @@ static class ResourceText
     public static string Memory(long bytes) => $"{bytes / (1024d * 1024):N0} MB";
     public static string Rate(double? bytes) => bytes is { } v ? $"{v / (1024 * 1024):N1} MB/s" : "Unavailable";
 
+    public static string Status(ResourceAlert alert, bool running, ResourceOptions options) =>
+        alert.IsStopped ? "Tracking stopped: process closed"
+        : !running ? "Paused"
+        : alert.Availability == ProcessAvailability.Unavailable ? "Process unreadable"
+        : alert.Current is not { } current ? "Waiting for a sample"
+        : current.High(options) != ResourceKind.None ? "Usage above threshold"
+        : alert.Usage.High(options) != ResourceKind.None ? "Usage has dropped below thresholds" : "Below thresholds";
+
     public static string Coverage(ResourceOptions options, bool ioConnected)
     {
         var checks = new List<string>();
         if (options.CpuEnabled) checks.Add("CPU");
         if (options.RamEnabled) checks.Add("RAM");
-        if (ioConnected && options.DiskEnabled) checks.Add("Disk");
-        if (ioConnected && options.NetworkEnabled) checks.Add("Network");
+        var io = options.IoKinds(ioConnected);
+        if (io.HasFlag(ResourceKind.Disk)) checks.Add("Disk");
+        if (io.HasFlag(ResourceKind.Network)) checks.Add("Network");
         if (options.OnSightNames.Length > 0) checks.Add("Name rules");
         bool needsIo = !ioConnected && (options.DiskEnabled || options.NetworkEnabled);
         string active = string.Join(" / ", checks);

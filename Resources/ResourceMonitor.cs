@@ -10,7 +10,12 @@ using Launcher = Windows.System.Launcher;
 
 sealed record ResourceState(bool Running, bool IoConnected, bool Connecting, ResourceOptions Options,
     IReadOnlyList<ResourceAlert> Alerts, DateTimeOffset? LastScan, int Candidates, int Unavailable,
-    string? Error, string? StorageError, int Overflow);
+    string? Error, string? StorageError, int Overflow)
+{
+    public int PendingCount => Alerts.Count(a => !a.Watching && !a.IsStopped);
+    public int WatchingCount => Alerts.Count(a => a.Watching && !a.IsStopped);
+    public int StoppedCount => Alerts.Count(a => a.IsStopped);
+}
 
 sealed class ResourceMonitor : IMonitor
 {
@@ -81,7 +86,11 @@ sealed class ResourceMonitor : IMonitor
             _connecting?.Cancel();
             StopCollector();
         }
-        Publish(State with { Running = on, Candidates = 0, Error = null });
+        Publish(State with
+        {
+            Running = on, Candidates = 0, Error = null,
+            Alerts = ResourceHistory.Break(State.Alerts, ProcessSampler.Now, DateTimeOffset.Now)
+        });
         if (on && !_sampling)
             Schedule(0.01);
     }
@@ -154,6 +163,7 @@ sealed class ResourceMonitor : IMonitor
                 {
                     Policy.Forget(key);
                     Previous.Remove(key);
+                    Publish(State with { Alerts = ResourceHistory.Exit(State.Alerts, key) });
                 }
             }
         });
@@ -232,7 +242,7 @@ sealed class ResourceMonitor : IMonitor
         int generation = _generation;
         var token = _run.Token;
         bool full = ProcessSampler.Now >= _nextScan;
-        var targets = full ? null : Policy.Candidates;
+        var targets = full ? null : ResourceHistory.Targets(Policy.Candidates, State.Alerts);
         var collector = _collector;
         try
         {
@@ -264,6 +274,8 @@ sealed class ResourceMonitor : IMonitor
             var alive = scan.Samples.Select(s => s.Key).ToHashSet();
             var options = State.Options;
             double now = ProcessSampler.Now;
+            var usages = new Dictionary<ProcessKey, ResourceUsage>();
+            var watching = State.Alerts.Where(a => a.Watching).Select(a => a.Usage.Key).ToHashSet();
             foreach (var raw in scan.Samples)
             {
                 if (ExitedDuringSample.Contains(raw.Key))
@@ -277,6 +289,9 @@ sealed class ResourceMonitor : IMonitor
                 };
                 var usage = ResourceUsage.From(sample, Previous.GetValueOrDefault(sample.Key), _processorCount);
                 Previous[sample.Key] = sample;
+                usages[sample.Key] = usage;
+                if (watching.Contains(sample.Key))
+                    continue;
                 ResourceKind kinds = Policy.Observe(usage, options, now);
                 if (full && Policy.OnSight(sample.Key, sample.Name, options))
                     kinds |= ResourceKind.OnSight;
@@ -308,6 +323,7 @@ sealed class ResourceMonitor : IMonitor
             }
             Publish(State with
             {
+                Alerts = ResourceHistory.Update(State.Alerts, usages, scan.AlivePids, targets, now, DateTimeOffset.Now),
                 LastScan = full ? DateTimeOffset.Now : State.LastScan,
                 Candidates = Policy.Candidates.Count,
                 Unavailable = full ? scan.UnavailableCount : State.Unavailable,
@@ -319,7 +335,11 @@ sealed class ResourceMonitor : IMonitor
             CrashLog.Write(ex);
             Policy.ResetConfirmation();
             _nextScan = ProcessSampler.Now + State.Options.ScanSeconds;
-            Publish(State with { Error = "Processes could not be sampled. Monitoring will retry at the next scan.", Candidates = 0 });
+            Publish(State with
+            {
+                Error = "Processes could not be sampled. Monitoring will retry at the next check.", Candidates = 0,
+                Alerts = ResourceHistory.Break(State.Alerts, ProcessSampler.Now, DateTimeOffset.Now)
+            });
         }
         finally
         {
@@ -327,13 +347,17 @@ sealed class ResourceMonitor : IMonitor
             {
                 Policy.Forget(key);
                 Previous.Remove(key);
+                State = State with { Alerts = ResourceHistory.Exit(State.Alerts, key) };
             }
+            if (ExitedDuringSample.Count > 0)
+                Publish(State);
             ExitedDuringSample.Clear();
             _sampling = false;
             if (State.Running)
             {
                 double delay = Math.Max(0.01, _nextScan - ProcessSampler.Now);
-                Schedule(Policy.Candidates.Count > 0 ? Math.Min(delay, State.Options.ConfirmSeconds) : delay);
+                Schedule(ResourceHistory.Targets(Policy.Candidates, State.Alerts).Length > 0
+                    ? Math.Min(delay, State.Options.ConfirmSeconds) : delay);
             }
         }
     }
@@ -349,6 +373,8 @@ sealed class ResourceMonitor : IMonitor
 
     static void AddAlert(ResourceAlert alert)
     {
+        if (State.Alerts.Any(a => a.Usage.Key == alert.Usage.Key && a.Watching))
+            return;
         bool isNew = State.Alerts.All(a => a.Usage.Key != alert.Usage.Key);
         var alerts = ResourceAlertList.Add(State.Alerts, alert, out bool overflow);
         Publish(State with
@@ -358,6 +384,8 @@ sealed class ResourceMonitor : IMonitor
         });
         if (isNew && !overflow)
             AlertRaised?.Invoke();
+        if (!_sampling && State.Running)
+            Schedule(0.01);
     }
 
     public static void Dismiss(ResourceAlert alert) => ApplyAlerts([alert], ResourceAlertAction.Dismiss);
@@ -373,6 +401,15 @@ sealed class ResourceMonitor : IMonitor
             return;
 
         var keys = targets.Select(a => a.Usage.Key).ToHashSet();
+        if (action == ResourceAlertAction.WatchAndDismiss)
+        {
+            foreach (var key in keys)
+                Policy.ResetConfirmation(key);
+            Publish(State with { Alerts = ResourceAlertList.Watch(State.Alerts, keys) });
+            if (State.Running && !_sampling)
+                Schedule(0.01);
+            return;
+        }
         if (action == ResourceAlertAction.IgnoreAlways)
         {
             if (ResourceAlertList.IgnoreOptions(State.Options, targets, out string? error) is not { } options)
@@ -387,6 +424,8 @@ sealed class ResourceMonitor : IMonitor
             double now = ProcessSampler.Now;
             foreach (var alert in targets)
             {
+                if (alert.IsStopped)
+                    continue;
                 if (action == ResourceAlertAction.Dismiss)
                     Policy.Dismiss(alert.Usage.Key, now);
                 else

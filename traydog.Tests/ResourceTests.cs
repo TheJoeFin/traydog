@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Text.Json;
 
@@ -124,6 +125,24 @@ internal sealed class ResourceTests
             CpuEnabled = false, RamEnabled = false, DiskEnabled = false, NetworkEnabled = false
         }));
         Assert.AreEqual(ResourceKind.None, Usage(null).High(Defaults));
+    }
+
+    [TestMethod]
+    [DataRow(false, false, false, ResourceKind.None)]
+    [DataRow(false, false, true, ResourceKind.None)]
+    [DataRow(false, true, false, ResourceKind.None)]
+    [DataRow(false, true, true, ResourceKind.None)]
+    [DataRow(true, false, false, ResourceKind.None)]
+    [DataRow(true, false, true, ResourceKind.Network)]
+    [DataRow(true, true, false, ResourceKind.Disk)]
+    [DataRow(true, true, true, ResourceKind.Disk | ResourceKind.Network)]
+    public void IoVisibility_RequiresPermissionAndEachEnabledCheck(bool connected, bool disk, bool network, ResourceKind expected)
+    {
+        var options = Defaults with { DiskEnabled = disk, NetworkEnabled = network };
+        Assert.AreEqual(expected, options.IoKinds(connected));
+        string coverage = ResourceText.Coverage(options, connected);
+        Assert.AreEqual(expected.HasFlag(ResourceKind.Disk), coverage.Contains("Disk", StringComparison.Ordinal));
+        Assert.AreEqual(expected.HasFlag(ResourceKind.Network), coverage.Contains("Network", StringComparison.Ordinal));
     }
 
     [TestMethod]
@@ -252,7 +271,46 @@ internal sealed class ResourceTests
         Assert.AreEqual(key, scan.Samples.Single().Key);
         Assert.IsTrue(scan.Samples.Single().RamBytes > 0);
         Assert.IsTrue(scan.Samples.Single().CpuTicks > 0);
-        Assert.AreEqual(0, ProcessSampler.Read([key with { StartedUtcTicks = key.StartedUtcTicks - 1 }]).Samples.Count);
+        var reused = ProcessSampler.Read([key with { StartedUtcTicks = key.StartedUtcTicks - 1 }]);
+        Assert.AreEqual(0, reused.Samples.Count);
+        Assert.IsFalse(reused.AlivePids.Contains(key.Pid));
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Sampler_RecognizesClosedAndKilledProcessesWithRetainedHandles(bool killed)
+    {
+        if (!OperatingSystem.IsWindows())
+            Assert.Inconclusive("This owned-process regression uses the Windows sort utility.");
+        using var process = Process.Start(new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "sort.exe"))
+        {
+            UseShellExecute = false, CreateNoWindow = true, RedirectStandardInput = true, RedirectStandardOutput = true
+        }) ?? throw new InvalidOperationException("The owned test process did not start.");
+        try
+        {
+            var key = new ProcessKey(process.Id, process.StartTime.ToUniversalTime().Ticks);
+            Assert.AreEqual(1, ProcessSampler.Read([key]).Samples.Count);
+            if (killed)
+                process.Kill();
+            else
+                process.StandardInput.Close();
+            Assert.IsTrue(process.WaitForExit(5000));
+
+            // Retain the original Process handle: Windows may still expose the terminated PID.
+            var scan = ProcessSampler.Read([key]);
+            Assert.IsEmpty(scan.Samples);
+            Assert.IsFalse(scan.AlivePids.Contains(key.Pid));
+            Assert.AreEqual(0, scan.UnavailableCount);
+        }
+        finally
+        {
+            if (!process.HasExited)
+            {
+                process.Kill();
+                process.WaitForExit(5000);
+            }
+        }
     }
 
     [TestMethod]

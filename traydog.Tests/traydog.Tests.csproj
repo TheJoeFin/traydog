@@ -34,6 +34,7 @@
     <Compile Include="..\Resources\ResourceModel.cs" Link="Resources\ResourceModel.cs" />
     <Compile Include="..\Resources\ResourcePolicy.cs" Link="Resources\ResourcePolicy.cs" />
     <Compile Include="..\Resources\ResourceAlertList.cs" Link="Resources\ResourceAlertList.cs" />
+    <Compile Include="..\Resources\ResourceHistory.cs" Link="Resources\ResourceHistory.cs" />
     <Compile Include="..\Resources\ProcessSampler.cs" Link="Resources\ProcessSampler.cs" />
     <Compile Include="..\UI\MonitoringLayout.cs" Link="UI\MonitoringLayout.cs" />
   </ItemGroup>

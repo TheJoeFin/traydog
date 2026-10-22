@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using System.Linq;
 
-enum ResourceAlertAction { Dismiss, IgnoreOnce, IgnoreAlways }
+enum ResourceAlertAction { Dismiss, IgnoreOnce, IgnoreAlways, WatchAndDismiss }
 
 static class ResourceAlertList
 {
@@ -12,7 +12,8 @@ static class ResourceAlertList
         overflow = false;
         if (alerts.Any(a => a.Usage.Key == alert.Usage.Key))
             return [.. alerts.Select(a => a.Usage.Key == alert.Usage.Key
-                ? alert with { Kinds = a.Kinds | alert.Kinds } : a)];
+                ? alert with { Kinds = a.Kinds | alert.Kinds, History = a.History, Watching = a.Watching,
+                    Availability = a.Availability } : a)];
 
         // Never evict a row someone may be about to act on.
         if (alerts.Count >= Limit)
@@ -27,6 +28,12 @@ static class ResourceAlertList
     {
         var selected = keys.ToHashSet();
         return [.. alerts.Where(a => selected.Contains(a.Usage.Key))];
+    }
+
+    public static ResourceAlert[] Watch(IReadOnlyList<ResourceAlert> alerts, IEnumerable<ProcessKey> keys)
+    {
+        var selected = keys.ToHashSet();
+        return [.. alerts.Select(a => selected.Contains(a.Usage.Key) && a.CanWatch ? a with { Watching = true } : a)];
     }
 
     public static ResourceOptions? IgnoreOptions(ResourceOptions options, IReadOnlyList<ResourceAlert> alerts, out string? error)
